@@ -107,6 +107,7 @@ const FAMILIES = {
   volt:     { name: "Volt",     weapon: "blaster", dtype: "Energy", armor: "Ceramic",   weight: 1.8, range: "ranged", trait: "arc" },
 };
 // what each family's weapon does beyond its numbers; the sim reads these values, the help screen the text
+const YARD_PERK = { sawbot: { arm: "Saw arm: metal tiles cost 1 energy" }, volt: { head: "Scanner visor: shows the signal of tiles next to you" } };
 const TRAITS = {
   combo: { every: 3, mult: 1.4,         text: "Every third hit lands 40% harder." },
   shred: { blockReduce: 0.75, bonus: 1.08, text: "Hits 8% harder and grinds through blocks (a block stops a quarter, not half)." },
@@ -285,13 +286,13 @@ const PRESTIGE = { levels: 10, mult: 1.15, cores: 10, minReactor: 4 };
 const prestigeMult = n => Math.pow(PRESTIGE.mult, n);
 const maxLevel = (prestige = 0) => BASE.maxLevel + PRESTIGE.levels * prestige;
 function upgradeCost(id, lv) {   // from lv to lv + 1
-  const k = Math.pow(1.6, lv - 1);
-  return { scrap: Math.round(500 * k), wire: Math.round(40 * k), cores: id === "reactor" ? 2 * lv : 0, minutes: Math.round(30 * Math.pow(2, lv - 1)) };
+  const k = Math.pow(1.6, lv - 1), first = lv === 1 && (id === "gen" || id === "asm") ? 0.5 : 1;   // the first Generator and Assembly upgrades are a first-day goal: 250 scrap, 20 wire
+  return { scrap: Math.round(500 * k * first), wire: Math.round(40 * k * first), cores: id === "reactor" ? 2 * lv : 0, minutes: Math.round(30 * Math.pow(2, lv - 1)) };
 }
 const digCost = (metal, robot) => (metal ? (robot && robot.arm.family === "sawbot" ? 1 : BASE.digMetal) : BASE.digDirt);
 const tileYield = d => ({ scrap: BASE.scrapPerTile(d), wire: BASE.wirePerTile(d) });
 
-return { get rollRarity() { return rollRarity; }, get yardTile() { return yardTile; }, get yardSignal() { return yardSignal; }, get crewHaul() { return crewHaul; }, get preyOf() { return preyOf; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get upgradeCost() { return upgradeCost; }, get BASE() { return BASE; }, get SLOTS() { return SLOTS; }, get DEF_SLOTS() { return DEF_SLOTS; }, get OFF_SLOTS() { return OFF_SLOTS; }, get RARITY() { return RARITY; }, get RARITY_BANDS() { return RARITY_BANDS; }, get MAX_STARS() { return MAX_STARS; }, get FAMILIES() { return FAMILIES; }, get TRAITS() { return TRAITS; }, get TYPE() { return TYPE; }, get ARMORS() { return ARMORS; }, get typeMult() { return typeMult; }, get WEIGHT() { return WEIGHT; }, get weightClass() { return weightClass; }, get CHIPS() { return CHIPS; }, get YARD() { return YARD; }, get yardVault() { return yardVault; }, get CREW() { return CREW; }, get crewHours() { return crewHours; }, get GEMS() { return GEMS; }, get DAILY() { return DAILY; }, get SHOP() { return SHOP; }, get PAINTS() { return PAINTS; }, get paintHue() { return paintHue; }, get CAMPAIGN() { return CAMPAIGN; }, get bossPower() { return bossPower; }, get LEAGUE() { return LEAGUE; }, get fightSpeedFor() { return fightSpeedFor; }, get tierOf() { return tierOf; }, get ratingDelta() { return ratingDelta; }, get seasonId() { return seasonId; }, get seasonEndsIn() { return seasonEndsIn; }, get partPower() { return partPower; }, get makePart() { return makePart; }, get makeRobot() { return makeRobot; }, get generator() { return generator; }, get BUILDINGS() { return BUILDINGS; }, get reactorCap() { return reactorCap; }, get PRESTIGE() { return PRESTIGE; }, get prestigeMult() { return prestigeMult; }, get maxLevel() { return maxLevel; }, get digCost() { return digCost; }, get tileYield() { return tileYield; } };
+return { get rollRarity() { return rollRarity; }, get yardTile() { return yardTile; }, get yardSignal() { return yardSignal; }, get crewHaul() { return crewHaul; }, get preyOf() { return preyOf; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get upgradeCost() { return upgradeCost; }, get BASE() { return BASE; }, get SLOTS() { return SLOTS; }, get DEF_SLOTS() { return DEF_SLOTS; }, get OFF_SLOTS() { return OFF_SLOTS; }, get RARITY() { return RARITY; }, get RARITY_BANDS() { return RARITY_BANDS; }, get MAX_STARS() { return MAX_STARS; }, get FAMILIES() { return FAMILIES; }, get YARD_PERK() { return YARD_PERK; }, get TRAITS() { return TRAITS; }, get TYPE() { return TYPE; }, get ARMORS() { return ARMORS; }, get typeMult() { return typeMult; }, get WEIGHT() { return WEIGHT; }, get weightClass() { return weightClass; }, get CHIPS() { return CHIPS; }, get YARD() { return YARD; }, get yardVault() { return yardVault; }, get CREW() { return CREW; }, get crewHours() { return crewHours; }, get GEMS() { return GEMS; }, get DAILY() { return DAILY; }, get SHOP() { return SHOP; }, get PAINTS() { return PAINTS; }, get paintHue() { return paintHue; }, get CAMPAIGN() { return CAMPAIGN; }, get bossPower() { return bossPower; }, get LEAGUE() { return LEAGUE; }, get fightSpeedFor() { return fightSpeedFor; }, get tierOf() { return tierOf; }, get ratingDelta() { return ratingDelta; }, get seasonId() { return seasonId; }, get seasonEndsIn() { return seasonEndsIn; }, get partPower() { return partPower; }, get makePart() { return makePart; }, get makeRobot() { return makeRobot; }, get generator() { return generator; }, get BUILDINGS() { return BUILDINGS; }, get reactorCap() { return reactorCap; }, get PRESTIGE() { return PRESTIGE; }, get prestigeMult() { return prestigeMult; }, get maxLevel() { return maxLevel; }, get digCost() { return digCost; }, get tileYield() { return tileYield; } };
 })();
 __m['state'] = (function () {
 // Bolt Brawl - the player's state and what time does to it. One object, saved whole; every screen reads
@@ -856,11 +857,11 @@ function draw(G, ctx) {
       const m = S.missing(s, cost); const ok = !s.upgrading && S.canAfford(s, cost);
       let line = cost.scrap + " scrap, " + cost.wire + " wire" + (cost.cores ? ", " + cost.cores + " core" + (cost.cores > 1 ? "s" : "") : "") + ", " + fmtDur(cost.minutes * 60000);
       if (id !== "dock") text(ctx, "Next: " + BUILDINGS[id].gives(lv + 1), x + 16, y + 80, 13, C.ink, "left", false);
-      text(ctx, line, x + 16, y + 100, 12, ok ? C.muted : C.red, "left", false);
+      if (!crewCard) text(ctx, line, x + 16, y + 100, 12, ok ? C.muted : C.red, "left", false);
       const crewCard = id === "dock";
       if (crewCard) { const h = S.crewMaxHours(s);
-        if (s.crew) { text(ctx, "Crew out: back in " + fmtDur(s.crew.back - now) + " with " + s.crew.haul.scrap + " scrap, " + s.crew.haul.wire + " wire", x + 16, y + 80, 12, C.amber, "left", false); }
-        else { const haul = crewHaul(h, s.yard.pos ? s.yard.pos.r + 1 : 1); text(ctx, "Crew: " + h + " h away brings about " + haul.scrap + " scrap, " + haul.wire + " wire", x + 16, y + 80, 12, C.ink, "left", false); } }
+        if (s.crew) { text(ctx, "Crew back in " + fmtDur(s.crew.back - now), x + 16, y + 80, 12, C.amber, "left", false); text(ctx, "brings " + s.crew.haul.scrap + " scrap, " + s.crew.haul.wire + " wire", x + 16, y + 96, 12, C.amber, "left", false); }
+        else { const haul = crewHaul(h, s.yard.pos ? s.yard.pos.r + 1 : 1); text(ctx, "Crew: " + h + " h away, about", x + 16, y + 80, 12, C.ink, "left", false); text(ctx, haul.scrap + " scrap, " + haul.wire + " wire", x + 16, y + 96, 12, C.ink, "left", false); } }
       const rebuildable = id === "reactor" && (lv >= PRESTIGE.minReactor || s.prestige);
       const split = rebuildable || crewCard;
       button(ctx, "base:up:" + id, x + 16, y + 110, split ? 130 : 268, 30, s.upgrading ? (split ? "BUSY" : "ONE UPGRADE AT A TIME") : ok ? "UPGRADE" : "NOT ENOUGH", C.blue, ok, split ? 14 : 17);
@@ -1031,6 +1032,7 @@ const { C, plate, text, outlined, button, bar, typeBadge, rarityBadge, chipIcon,
 let rivals = [], me = null, rivActors = [], chances = {}, shown = [0, 0, 0], loadoutI = 0, day = 0, mode = "rivals", bosses = [], bossActors = [];
 const CARD_X = i => 424 + i * 282, CARD_Y = 96, CARD_W = 270, CARD_H = 560;
 const key = (li, i) => li + ":" + i;
+let robotSig = "";   // chances are cached per build; any change to the robot clears them
 
 function enter(G) {
   const s = G.state; day = Math.floor(G.now() / 864e5);
@@ -1046,6 +1048,7 @@ function chance(G, i) {
   return chances[k];
 }
 function step(G, dt) {
+  const sig = JSON.stringify(G.state.robot) + G.state.chips.join() + G.state.prestige; if (sig !== robotSig) { robotSig = sig; chances = {}; }
   stepActor(me, dt); for (const a of rivActors) stepActor(a, dt); for (const a of bossActors) stepActor(a, dt);
   (mode === "campaign" ? bosses : rivals).forEach((r, i) => { shown[i] += (chance(G, i) - shown[i]) * Math.min(1, dt * 6); });
 }
@@ -1087,7 +1090,7 @@ function draw(G, ctx) {
     bar(ctx, x + 24, y + 468, CARD_W - 48, 8, ch, col);
     const rw = ratingDelta(true, ch), rl = ratingDelta(false, ch);
     if (rw <= 2) text(ctx, "Sure win: the part, no rating", x + CARD_W / 2, y + 490, 11, C.muted, "center", false);
-    else { text(ctx, "+" + rw, x + CARD_W / 2 - 46, y + 491, 14, C.green, "right"); text(ctx, "win", x + CARD_W / 2 - 42, y + 491, 11, C.muted, "left", false); text(ctx, "" + rl, x + CARD_W / 2 + 40, y + 491, 14, C.red, "right"); text(ctx, "loss", x + CARD_W / 2 + 44, y + 491, 11, C.muted, "left", false); }
+    else { text(ctx, "+" + rw, x + CARD_W / 2 - 46, y + 491, 14, C.green, "right"); text(ctx, "win", x + CARD_W / 2 - 42, y + 491, 11, C.green, "left", false); text(ctx, "" + rl, x + CARD_W / 2 + 40, y + 491, 14, C.red, "right"); text(ctx, "loss", x + CARD_W / 2 + 44, y + 491, 11, C.red, "left", false); }
     drawPartIcon(ctx, iconKey(r.reward), x + 30, y + 504, 22); text(ctx, "Prize: " + S.partName(r.reward), x + 46, y + 508, 11, C.ink, "left", false);
     button(ctx, "scout:fight:" + i, x + 50, y + CARD_H - 44, CARD_W - 100, 36, S.canFight(s) ? "FIGHT  " + BASE.fightEnergy + " ENERGY" : "NO ENERGY", C.red, S.canFight(s), 17);
   });
@@ -1271,15 +1274,15 @@ function pickScreen(G, ctx) {
   text(ctx, "A blueprint copy. " + rival.name + " keeps theirs.", W / 2, 100, 16, "#fff", "center", false);
   const slots = Object.keys(rival.robot), cw = 164, gap = 12, x0 = (W - (slots.length * cw + (slots.length - 1) * gap)) / 2;
   slots.forEach((slot, i) => {
-    const p = rival.robot[slot], mine = G.state.robot[slot], gain = Math.round(partPower(p) - partPower(mine)), x = x0 + i * (cw + gap), y = 130, h = 400, sel = picked === slot;
+    const p = rival.robot[slot], bp = { ...p, level: 1, stars: 0 }, mine = G.state.robot[slot], gain = Math.round(partPower(bp) - partPower(mine)), x = x0 + i * (cw + gap), y = 130, h = 400, sel = picked === slot;
     plate(ctx, x, y, cw, h, sel ? C.paperWarm : C.paper, 18); if (sel) { ctx.strokeStyle = C.gold; ctx.lineWidth = 6; ctx.beginPath(); ctx.roundRect(x, y, cw, h, 18); ctx.stroke(); }
     rarityBadge(ctx, p.rarity, x + cw / 2 - 40, y + 24, 80);
     drawPartIcon(ctx, iconKey(p), x + cw / 2, y + 130, 110, slot === "arm" && p.family === "sawbot" ? pt : 0);
     text(ctx, S.partName(p).replace(p.rarity[0].toUpperCase() + p.rarity.slice(1) + " ", ""), x + cw / 2, y + 222, 18, C.ink, "center");
-    text(ctx, "+" + Math.round(partPower(p)) + " power", x + cw / 2, y + 250, 16, C.muted, "center", false);
+    text(ctx, "+" + Math.round(partPower(bp)) + " power as a blueprint", x + cw / 2, y + 250, 14, C.muted, "center", false);
     const dup = S.isDuplicate(G.state, p);
     text(ctx, dup ? "+1 STAR to yours (" + ((mine.stars || 0) + 1) + "/5)" : gain > 0 ? "+" + gain + " vs yours" : gain === 0 ? "same as yours" : gain + " vs yours", x + cw / 2, y + 274, 15, dup ? C.amber : gain > 0 ? C.green : C.muted, "center", false);
-    text(ctx, "Level " + p.level + (p.stars ? ", " + p.stars + " stars" : ""), x + cw / 2, y + 296, 13, C.muted, "center", false);
+    text(ctx, "(theirs is level " + p.level + ": " + Math.round(partPower(p)) + ")", x + cw / 2, y + 296, 12, C.muted, "center", false);
     text(ctx, FAMILIES[p.family].name, x + cw / 2, y + 318, 13, C.muted, "center", false);
     hotspot("arena:pick:" + slot, x, y, cw, h);
   });
@@ -1311,7 +1314,7 @@ return { get enter() { return enter; }, get step() { return step; }, get draw() 
 })();
 __m['scr-workshop'] = (function () {
 // Workshop: blueprints become parts (cost, time), parts go on the robot or level up. Every number from rules via state.
-const { partPower, buildCost, levelCost, BASE, FAMILIES, SLOTS } = __m['rules'];
+const { partPower, buildCost, levelCost, BASE, FAMILIES, SLOTS, YARD_PERK } = __m['rules'];
 const S = __m['state'];
 const { actor, drawActor, stepActor, iconKey, drawPartIcon } = __m['rig'];
 const { SIZE } = __m['scr-base'];
@@ -1352,7 +1355,8 @@ function draw(G, ctx) {
     drawPartIcon(ctx, iconKey(p), x + 48, y + 43, 64); rarityBadge(ctx, p.rarity, x + 96, y + 22, 84);
     text(ctx, S.partName(p).replace(/^\w+ /, ""), x + 190, y + 28, 19, C.ink); text(ctx, "+" + Math.round(partPower(p)) + " power" + (p.level > 1 ? ", level " + p.level : ""), x + 190, y + 50, 14, C.muted, "left", false);
     const mine = s.robot[p.slot], gain = Math.round(partPower(p) - partPower(mine));
-    text(ctx, gain > 0 ? "+" + gain + " over your " + SLOT_LABEL[p.slot].toLowerCase() : "not better than your " + SLOT_LABEL[p.slot].toLowerCase(), x + 190, y + 72, 13, gain > 0 ? C.green : C.muted, "left", false);
+    const perk = YARD_PERK[p.family] && YARD_PERK[p.family][p.slot];
+    text(ctx, (gain > 0 ? "+" + gain + " over your " + SLOT_LABEL[p.slot].toLowerCase() : "not better than your " + SLOT_LABEL[p.slot].toLowerCase()) + (perk ? ".  " + perk : ""), x + 190, y + 72, 13, gain > 0 ? C.green : C.muted, "left", false);
     if (tab === "blueprints") {
       const cost = buildCost(p), m = S.missing(s, cost), ok = S.canAfford(s, cost) && s.queue.length < S.buildSlots(s), instant = s.buildsDone < BASE.instantBuilds;
       const need = [["scrap", cost.scrap, m.scrap], ["wire", cost.wire, m.wire]]; if (cost.cores) need.push(["cores", cost.cores, m.cores]);
@@ -1398,7 +1402,7 @@ function loadArt(data) {
   return Promise.all(Object.entries(data).map(([k, src]) => new Promise(res => { const im = new Image(); im.onload = () => res(); im.onerror = () => res(); im.src = src; if (k === "backdrop") bgImg = im; else ART[k] = im; })));
 }
 const W = 1280, H = 720, TW = 100, TH = 90, GX = 290, SURFACE = 300;   // grid 290..990; panel left of it, buttons right of it   // where the top row starts when the camera is at the top
-let intro = false, me = null, busy = null, cam = 0, camT = 0, hover = null, auto = false, hint = 0, fxs = [], lastYard = -1;
+let reveal = null, intro = false, me = null, busy = null, cam = 0, camT = 0, hover = null, auto = false, hint = 0, fxs = [], lastYard = -1;
 
 const tileX = c => GX + c * TW, tileY = r => SURFACE + r * TH - cam;
 const standAt = s => (s.yard.pos ? [tileX(s.yard.pos.c) + TW / 2, tileY(s.yard.pos.r) + TH - 6] : [tileX(Math.floor(BASE.yardCols / 2)) + TW / 2, SURFACE - 2 - cam]);
@@ -1417,7 +1421,7 @@ function step(G, dt) {
     else if (busy.phase === "dig") { if (!busy.done && me.mt > .5) { busy.done = true; land(G, busy.c, busy.r); } if (!me.move) { busy = null; if (auto) queueAuto(G); } }
   } else { me.vx = 0; me.x += (sx - me.x) * Math.min(1, dt * 6); }
   for (const f of fxs) { f.life += dt; f.vy += 1300 * dt; f.x += f.vx * dt; f.y += f.vy * dt; } fxs = fxs.filter(f => f.life < f.max);
-  hint += dt;
+  hint += dt; if (reveal) reveal.t += dt;
 }
 function queueAuto(G) { const s = G.state, m = S.autoDig(s); if (!m) { auto = false; G.toast(s.energy.value < 1 ? "Out of energy" : "Nothing left to dig"); return; } start(G, m[0], m[1]); }
 function start(G, c, r) {
@@ -1436,7 +1440,7 @@ function land(G, c, r) {
   if (got.wire) pop(cx, cy + 22, "+" + got.wire + " WIRE", "#8fe3ff", { size: 22, delay: .15 });
   if (got.extra) pop(cx, cy - 46, YARD.extras[got.extra].text.toUpperCase(), got.energy < 0 ? "#ff8a7a" : C.gold, { size: 20, delay: .3 });
   if (got.blueprint) pop(W / 2, 200, "BLUEPRINT FROM PIECES: " + S.partName(got.blueprint).toUpperCase(), C.gold, { size: 26, dur: 2 });
-  if (got.vault) { pop(cx, cy - 70, "VAULT OPENED: +" + got.core + " CORE", C.gold, { size: 34, dur: 2.2 }); auto = false; }
+  if (got.vault) { auto = false; reveal = { t: 0, core: got.core, scrap: s.inventory.scrap }; }
 }
 function draw(G, ctx) {
   const s = G.state;
@@ -1487,7 +1491,13 @@ function draw(G, ctx) {
     bigPips(ctx, 560, 452, 1); bigPips(ctx, 720, 452, 5);
     text(ctx, "far", 490, 457, 13, C.muted, "right", false); text(ctx, "close", 790, 457, 13, C.muted, "left", false);
     button(ctx, "yard:intro", 500, 480, 280, 44, "GOT IT", C.green, true, 20); }
-  if (S.vaultOpen(s)) { text(ctx, "VAULT OPENED. New yard in " + fmtDur(S.nextYardIn(G.now())) + ".", 1135, H - 160, 14, C.gold, "center"); }
+  if (reveal) { const k = Math.min(1, reveal.t / .4); ctx.fillStyle = "rgba(20,26,34," + (.75 * k) + ")"; ctx.fillRect(0, 0, W, H); ctx.save(); ctx.globalAlpha = k; ctx.translate(W / 2, 0); ctx.scale(.6 + .4 * k, .6 + .4 * k); ctx.translate(-W / 2, 0);
+    ctx.strokeStyle = C.gold; ctx.lineWidth = 10; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 + reveal.t * .4; ctx.globalAlpha = k * .25; ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(a) * 120, 330 + Math.sin(a) * 120); ctx.lineTo(W / 2 + Math.cos(a) * 520, 330 + Math.sin(a) * 520); ctx.stroke(); } ctx.globalAlpha = k;
+    if (ART.vault) ctx.drawImage(ART.vault, W / 2 - 90, 160, 180, 180);
+    outlined(ctx, "VAULT OPENED", W / 2, 400, 56, C.gold); outlined(ctx, "+" + reveal.core + " CORE", W / 2, 460, 44, "#59f3ff");
+    text(ctx, "Cores build legendary parts and upgrade the reactor. A new yard opens in " + fmtDur(S.nextYardIn(G.now())) + ".", W / 2, 500, 15, "#fff", "center", false);
+    button(ctx, "yard:reveal", W / 2 - 130, 530, 260, 48, "CONTINUE", C.green, true, 22); ctx.restore(); }
+  if (S.vaultOpen(s) && !reveal) { text(ctx, "VAULT OPENED. New yard in " + fmtDur(S.nextYardIn(G.now())) + ".", 1135, H - 160, 14, C.gold, "center"); }
   { const any = !!S.autoDig(s); button(ctx, "yard:auto", 1010, H - 130, 250, 44, auto ? "STOP AUTO DIG" : "AUTO DIG", auto ? C.red : C.rust, any || auto, 20); text(ctx, auto ? "Digging for you; stops with " + BASE.autoReserve + " energy left for a fight." : s.energy.value < 1 ? "No energy: it refills on its own (see the top bar)." : "Or tap any glowing tile to dig it.", 1135, H - 140, 12, "#fff", "center", false); }
 }
 function bigPips(ctx, cx, cy, n) { const cols = ["#4fb6ff", "#7cd0a0", "#ffd23f", "#ff9a3c", "#ff4d3c"]; darkPlate(ctx, cx - 44, cy - 16, 88, 32, 10, .85); for (let i = 0; i < 5; i++) { ctx.fillStyle = i < Math.min(5, n) ? cols[Math.min(5, n) - 1] : "#3a434e"; ctx.beginPath(); ctx.roundRect(cx - 38 + i * 16, cy - 8, 12, 16, 3); ctx.fill(); } }
@@ -1495,6 +1505,8 @@ function pips(ctx, x, y, n, a) { ctx.globalAlpha = a; darkPlate(ctx, x - 4, y - 
 function hoverAt(x, y) { hover = null; for (let r = 0; r < BASE.yardLayers; r++) for (let c = 0; c < BASE.yardCols; c++) { const tx = tileX(c), ty = tileY(r); if (x >= tx && x <= tx + TW && y >= ty && y <= ty + TH) hover = [c, r]; } }
 function click(G, id) {
   const s = G.state;
+  if (id === "yard:reveal") { reveal = null; return; }
+  if (reveal) return;
   if (id === "yard:intro") { intro = false; s.yardSeen = true; return; }
   if (intro) return;
   if (id === "yard:auto") { auto = !auto; if (auto) queueAuto(G); return; }
