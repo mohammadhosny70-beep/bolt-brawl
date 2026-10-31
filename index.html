@@ -999,12 +999,12 @@ function makeRival(seed, target, name, forceTheme) {
 function offer(state, day = Math.floor(Date.now() / 864e5)) {
   const base = stats(state.robot).power, out = [], used = new Set();
   const me = { robot: state.robot, chips: state.chips, prestige: state.prestige || 0 };
-  const spreads = [0.9, 1.0, 1.08], bands = [[0.8, 1], [0.5, 0.78], [0.25, 0.5]];   // a sure part, a fair fight, an upset: chosen by simulated chance, never under 25%
+  const spreads = [0.9, 1.0, 1.08], bands = [[0.8, 1], [0.5, 0.78], [0.2, 0.5]];   // a sure part, a fair fight, an upset: chosen by simulated chance, never under 25%
   for (let i = 0; i < 3; i++) {
     let r, tries = 0, best = null, bestD = 9;
     const firstTime = state.league.wins + state.league.losses === 0 && i === 0;   // a new player's first rival is the one their weapon beats: the counter system, shown
-    do { r = makeRival(day * 1000 + state.league.wins * 7 + (state.rerolls || 0) * 977 + i * 31 + tries * 101, Math.round(base * spreads[i] * (0.9 + 0.2 * ((i * 7919 + day + tries * 13) % 11) / 11)), null, firstTime ? preyOf(state.robot) : null); tries++; }
-    while ((() => { if (used.has(r.name) || used.has(r.robot.arm.family)) return tries < 24; if (firstTime) return false; const p = winChance(me, { robot: r.robot, chips: r.chips }, 40, day + i).p, mid = (bands[i][0] + bands[i][1]) / 2, dd = Math.abs(p - mid); if (dd < bestD) { bestD = dd; best = r; } return !inBand(p, bands[i]) && tries < 24; })());
+    do { r = makeRival(day * 1000 + state.league.wins * 7 + (state.rerolls || 0) * 977 + i * 31 + tries * 101, Math.round(base * spreads[i] * (0.9 + (0.2 + 0.3 * Math.floor(tries / 16)) * ((i * 7919 + day + tries * 13) % 11) / 11) * (tries >= 32 ? 0.85 : 1)), null, firstTime ? preyOf(state.robot) : null); tries++; }
+    while ((() => { if (used.has(r.name) || used.has(r.robot.arm.family)) return tries < 48; if (firstTime) return false; const p = winChance(me, { robot: r.robot, chips: r.chips }, 40, day + i).p, mid = (bands[i][0] + bands[i][1]) / 2, dd = Math.abs(p - mid); if (dd < bestD) { bestD = dd; best = r; } return !inBand(p, bands[i]) && tries < 48; })());
     if (!firstTime && best && bestD < Math.abs(winChance(me, { robot: r.robot, chips: r.chips }, 40, day + i).p - (bands[i][0] + bands[i][1]) / 2)) r = best;   // out of tries: the closest to the band's middle
     if (firstTime) { r.robot.arm = makePart("arm", r.robot.arm.family, "rare", 1); for (const p of Object.values(r.robot)) p.level = 1; }   // and wears a rare arm: the first prize is a real upgrade
     used.add(r.name); used.add(r.robot.arm.family);
