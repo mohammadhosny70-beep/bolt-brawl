@@ -320,6 +320,7 @@ function newState(now = Date.now()) {
     owned: { pass: false, starter: false, paints: ["factory", "sunset"] },
     paint: "factory",
     fightSpeed: 1,                            // chosen playback speed, capped by the league perk
+    muted: false,
     campaign: { cleared: 0, kills: 0 },      // bosses beaten in order; kills counts repeats too
     log: [],                                  // last events for the base screen
     seed: (now % 100000) | 0,
@@ -722,12 +723,85 @@ const pc = x => Math.round(100 * x) + "%";
 
 return { get rr() { return rr; }, get text() { return text; }, get outlined() { return outlined; }, get plate() { return plate; }, get darkPlate() { return darkPlate; }, get bar() { return bar; }, get badge() { return badge; }, get beginFrame() { return beginFrame; }, get button() { return button; }, get hotspot() { return hotspot; }, get hitAt() { return hitAt; }, get pop() { return pop; }, get stepPops() { return stepPops; }, get drawPops() { return drawPops; }, get star() { return star; }, get glyph() { return glyph; }, get chipIcon() { return chipIcon; }, get C() { return C; }, get F() { return F; }, get font() { return font; }, get MIN_TEXT() { return MIN_TEXT; }, get typeBadge() { return typeBadge; }, get rarityBadge() { return rarityBadge; }, get hits() { return hits; }, get pops() { return pops; }, get CHIP_UI() { return CHIP_UI; }, get fmtDur() { return fmtDur; }, get fmtDurS() { return fmtDurS; }, get pc() { return pc; } };
 })();
+__m['sfx'] = (function () {
+// Sound: every effect is synthesized here, so the single-file build carries no audio files. The context is
+// created on the first tap (browsers require it); `muted` is remembered in the save by the app.
+let ac = null, master = null, muted = false, unlocked = false;
+function setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 0.5; }
+const isMuted = () => muted;
+function unlock() {
+  if (unlocked) { if (ac && ac.state === "suspended") ac.resume(); return; }
+  try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(ac.destination); unlocked = true; } catch (e) { ac = null; }
+}
+const now = () => ac.currentTime;
+// a tone: type, from->to frequency over dur, with an envelope
+function tone({ type = "square", f0 = 440, f1 = f0, dur = 0.1, vol = 0.3, attack = 0.005, decay, delay = 0, slide = "exp" }) {
+  if (!ac || muted) return;
+  const t = now() + delay, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t);
+  if (f1 !== f0) { if (slide === "exp") o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur); else o.frequency.linearRampToValueAtTime(f1, t + dur); }
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.001, t + (decay || dur));
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + (decay || dur) + 0.02);
+}
+// a burst of noise: for clanks, digs, bursts
+function noise({ dur = 0.15, vol = 0.3, delay = 0, hp = 0, lp = 8000, decay }) {
+  if (!ac || muted) return;
+  const t = now() + delay, n = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = ac.createBufferSource(); s.buffer = buf;
+  const g = ac.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + (decay || dur));
+  let node = s;
+  if (hp) { const f = ac.createBiquadFilter(); f.type = "highpass"; f.frequency.value = hp; node.connect(f); node = f; }
+  if (lp < 8000) { const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lp; node.connect(f); node = f; }
+  node.connect(g); g.connect(master); s.start(t);
+}
+
+const SFX = {
+  tap: () => tone({ type: "square", f0: 880, f1: 660, dur: 0.05, vol: 0.12 }),
+  nav: () => { tone({ type: "triangle", f0: 520, f1: 780, dur: 0.07, vol: 0.15 }); },
+  no: () => tone({ type: "sawtooth", f0: 200, f1: 120, dur: 0.15, vol: 0.15 }),
+  // fights, by weapon
+  hit: (weapon, crit) => {
+    const v = crit ? 0.5 : 0.32;
+    if (weapon === "sword") { noise({ dur: 0.08, vol: v, hp: 2500 }); tone({ type: "triangle", f0: 1800, f1: 600, dur: 0.08, vol: v * 0.5 }); }
+    else if (weapon === "saw") { noise({ dur: 0.18, vol: v * 0.8, hp: 1200, lp: 5000 }); tone({ type: "sawtooth", f0: 420, f1: 300, dur: 0.18, vol: v * 0.35 }); }
+    else if (weapon === "hammer") { noise({ dur: 0.2, vol: v, lp: 900 }); tone({ type: "sine", f0: 140, f1: 45, dur: 0.25, vol: v }); }
+    else { tone({ type: "square", f0: 1400, f1: 300, dur: 0.12, vol: v * 0.6 }); noise({ dur: 0.05, vol: v * 0.4, hp: 3000 }); }
+    if (crit) { tone({ type: "square", f0: 1200, f1: 2400, dur: 0.12, vol: 0.25, delay: 0.03 }); }
+  },
+  shot: () => tone({ type: "square", f0: 900, f1: 1600, dur: 0.08, vol: 0.2 }),
+  block: () => { noise({ dur: 0.06, vol: 0.3, hp: 3500 }); tone({ type: "triangle", f0: 2200, f1: 1800, dur: 0.1, vol: 0.2 }); },
+  dodge: () => tone({ type: "sine", f0: 500, f1: 1200, dur: 0.12, vol: 0.18 }),
+  miss: () => noise({ dur: 0.1, vol: 0.12, hp: 600, lp: 3000 }),
+  overdrive: () => { [0, 0.08, 0.16].forEach((d, i) => tone({ type: "square", f0: 300 * (i + 1), f1: 600 * (i + 1), dur: 0.12, vol: 0.2, delay: d })); },
+  ko: () => { tone({ type: "sine", f0: 200, f1: 30, dur: 0.6, vol: 0.5 }); noise({ dur: 0.5, vol: 0.4, lp: 1200 }); },
+  burst: () => { noise({ dur: 0.35, vol: 0.45, lp: 2500 }); [0, 0.05, 0.11, 0.18].forEach(d => noise({ dur: 0.05, vol: 0.25, hp: 2000, delay: d })); },
+  win: () => { [[523, 0], [659, 0.1], [784, 0.2], [1046, 0.3]].forEach(([f, d]) => tone({ type: "square", f0: f, dur: 0.18, vol: 0.2, delay: d })); },
+  lose: () => { [[400, 0], [350, 0.18], [300, 0.36]].forEach(([f, d]) => tone({ type: "sawtooth", f0: f, f1: f * 0.9, dur: 0.22, vol: 0.18, delay: d })); },
+  boss: () => { [[392, 0], [523, 0.12], [659, 0.24], [784, 0.36], [1046, 0.52]].forEach(([f, d]) => tone({ type: "square", f0: f, dur: 0.2, vol: 0.22, delay: d })); },
+  // yard
+  dig: metal => { if (metal) { noise({ dur: 0.12, vol: 0.35, hp: 1500 }); tone({ type: "triangle", f0: 700, f1: 400, dur: 0.1, vol: 0.2 }); } else { noise({ dur: 0.18, vol: 0.35, lp: 900 }); } },
+  pickup: () => { tone({ type: "square", f0: 880, dur: 0.06, vol: 0.15 }); tone({ type: "square", f0: 1320, dur: 0.1, vol: 0.15, delay: 0.06 }); },
+  extra: good => (good ? tone({ type: "sine", f0: 660, f1: 1320, dur: 0.2, vol: 0.2 }) : tone({ type: "sawtooth", f0: 300, f1: 150, dur: 0.25, vol: 0.18 })),
+  vault: () => { [[659, 0], [784, 0.1], [988, 0.2], [1318, 0.3], [1568, 0.45]].forEach(([f, d]) => tone({ type: "triangle", f0: f, dur: 0.25, vol: 0.22, delay: d })); noise({ dur: 0.3, vol: 0.2, lp: 1500 }); },
+  // workshop
+  build: () => { [0, 0.12].forEach(d => { noise({ dur: 0.06, vol: 0.25, hp: 2000, delay: d }); tone({ type: "triangle", f0: 900, f1: 700, dur: 0.08, vol: 0.15, delay: d }); }); },
+  bolt: () => { noise({ dur: 0.08, vol: 0.35, hp: 1800 }); tone({ type: "square", f0: 220, f1: 440, dur: 0.15, vol: 0.2, delay: 0.05 }); tone({ type: "square", f0: 880, dur: 0.15, vol: 0.2, delay: 0.18 }); },
+  level: () => tone({ type: "square", f0: 660, f1: 990, dur: 0.12, vol: 0.18 }),
+  star: () => { [[1046, 0], [1318, 0.08], [1568, 0.16]].forEach(([f, d]) => tone({ type: "sine", f0: f, dur: 0.15, vol: 0.2, delay: d })); },
+  upgrade: () => { [[330, 0], [440, 0.1], [550, 0.2]].forEach(([f, d]) => tone({ type: "triangle", f0: f, dur: 0.15, vol: 0.2, delay: d })); },
+  gems: () => tone({ type: "sine", f0: 1500, f1: 2200, dur: 0.15, vol: 0.18 }),
+};
+
+return { get setMuted() { return setMuted; }, get unlock() { return unlock; }, get isMuted() { return isMuted; }, get SFX() { return SFX; } };
+})();
 __m['scr-base'] = (function () {
 // Base: the garage with your robot, the four buildings, the recent log. Reads state; changes it through state.js.
 const { stats, BUILDINGS, upgradeCost, reactorCap, FAMILIES, PRESTIGE, LEAGUE, CREW, crewHaul, fightSpeedFor } = __m['rules'];
 const S = __m['state'];
 const { actor, drawActor, stepActor } = __m['rig'];
 const { C, plate, darkPlate, text, outlined, button, bar, typeBadge, chipIcon, fmtDur, glyph, hotspot } = __m['ui'];
+const { SFX } = __m['sfx'];
 const SIZE = { garage: 300, arena: 300, card: 150, yard: 150 };   // robot heights in px: the one scale table
 let me = null, lastRobot = null;
 
@@ -799,9 +873,9 @@ function draw(G, ctx) {
 }
 function click(G, id) {
   const s = G.state, now = G.now();
-  if (id.startsWith("base:up:")) { if (S.startUpgrade(s, id.slice(8), now)) G.toast("Upgrade started"); }
-  if (id === "base:skip") { if (S.skip(s, now)) G.toast("Done"); }
-  if (id === "base:rebuild") { if (S.rebuild(s)) G.toast("Reactor rebuilt: level cap " + S.levelCap(s) + ", power x" + Math.pow(PRESTIGE.mult, s.prestige).toFixed(2)); else G.toast("Rebuild needs " + S.rebuildBlockers(s).join(", ") + " (gives cap +" + PRESTIGE.levels + " levels, x" + PRESTIGE.mult + " power)"); return; }
+  if (id.startsWith("base:up:")) { if (S.startUpgrade(s, id.slice(8), now)) { SFX.upgrade(); G.toast("Upgrade started"); } else SFX.no(); }
+  if (id === "base:skip") { if (S.skip(s, now)) { SFX.gems(); G.toast("Done"); } }
+  if (id === "base:rebuild") { if (S.rebuild(s)) { SFX.boss(); G.toast("Reactor rebuilt: level cap " + S.levelCap(s) + ", power x" + Math.pow(PRESTIGE.mult, s.prestige).toFixed(2)); } else { SFX.no(); G.toast("Rebuild needs " + S.rebuildBlockers(s).join(", ") + " (gives cap +" + PRESTIGE.levels + " levels, x" + PRESTIGE.mult + " power)"); } return; }
   if (id === "base:crew") { if (S.sendCrew(s, S.crewMaxHours(s), now)) G.toast("Crew sent for " + S.crewMaxHours(s) + " h; a higher dock keeps them out longer"); return; }
   if (id === "base:reset") { if (G.confirmReset) { G.state = S.reset(now); G.confirmReset = false; G.go("base"); G.toast("Fresh start"); } else { G.confirmReset = true; G.toast("Tap START OVER again to wipe this save"); setTimeout(() => { G.confirmReset = false; }, 4000); } return; }
   if (id === "base:setdef") { s.defense = JSON.parse(JSON.stringify(s.robot)); G.toast("Defense build saved"); }
@@ -1030,6 +1104,7 @@ const { duel } = __m['sim'];
 const S = __m['state'];
 const { actor, drawActor, stepActor, startMove, MOVES, WEAPON_MOVES, drawLoose, iconKey, drawPartIcon } = __m['rig'];
 const { SIZE } = __m['scr-base'];
+const { SFX } = __m['sfx'];
 const { C, plate, darkPlate, text, outlined, button, bar, typeBadge, rarityBadge, chipIcon, chipIcon : _c, star, pop, pops, hotspot, CHIP_UI, glyph } = __m['ui'];
 const GROUND = 600, W = 1280, H = 720;
 let A, B, rival, chance, isBoss, bossOut, log, result, T, phase, pt, fx, debris, banner, shake, cam, chipPops, picked, taken, hpShown, slow;
@@ -1062,12 +1137,12 @@ function step(G, dt0) {
       if (e.move && !e.started && T >= e.start) { e.started = true; const who = e.by ? B : A; startMove(who, e.move, e.over ? CHIPS.over.speed : 1); }
       if (!e.fired && T >= e.t) { e.fired = true; fire(e); }
     }
-    if (result.winner !== undefined && T >= result.time + 0.05 && !phase.startsWith("ko")) { phase = "ko"; pt = 0; slow = .2; const L = result.winner === 0 ? B : A; L.hp = 0; L.dead = true; }
+    if (result.winner !== undefined && T >= result.time + 0.05 && !phase.startsWith("ko")) { phase = "ko"; pt = 0; slow = .2; const L = result.winner === 0 ? B : A; L.hp = 0; L.dead = true; SFX.ko(); }
   } else if (phase === "ko") {
     if (pt > .9 && slow < 1) slow = 1;
     const Lo = result.winner === 0 ? B : A, Wi = result.winner === 0 ? A : B;
-    if (pt > 1.0 && !Lo.burst) { Lo.burst = true; burst(Lo); startMove(Wi, "flex"); shake = .35; }
-    if (pt > 3.2) { phase = result.winner === 0 ? (isBoss ? "boss" : "pick") : "lost"; pt = 0; if (phase === "lost" && !isBoss) S.recordFight(G.state, rival, false, G.now(), chance); if (phase === "boss") bossOut = S.bossBeaten(G.state, rival); }
+    if (pt > 1.0 && !Lo.burst) { Lo.burst = true; burst(Lo); startMove(Wi, "flex"); shake = .35; SFX.burst(); if (result.winner === 0) SFX.win(); else SFX.lose(); }
+    if (pt > 3.2) { phase = result.winner === 0 ? (isBoss ? "boss" : "pick") : "lost"; pt = 0; if (phase === "lost" && !isBoss) S.recordFight(G.state, rival, false, G.now(), chance); if (phase === "boss") { bossOut = S.bossBeaten(G.state, rival); SFX.boss(); } }
   }
   for (const d of debris) { d.vy += 1500 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.th += d.vr * dt; if (d.y > GROUND - 8) { d.y = GROUND - 8; d.vy *= -.3; d.vx *= .55; d.vr *= .45; } }
   for (const f of fx) { f.life += dt; if (f.type === "spark") { f.vy += 1400 * dt; f.x += f.vx * dt; f.y += f.vy * dt; } if (f.type === "smoke") { f.y -= 60 * dt; } if (f.type === "shot") { f.x += f.vx * dt; } }
@@ -1081,17 +1156,18 @@ function step(G, dt0) {
 }
 function fire(e) {
   const atk = e.by ? B : A, def = e.by ? A : B;
-  if (e.kind === "overdrive") { atk.od = CHIPS.over.hits; chipPop(atk, "over"); banner = { text: "OVERDRIVE!", t: 0, col: C.amber }; return; }
+  if (e.kind === "overdrive") { atk.od = CHIPS.over.hits; chipPop(atk, "over"); banner = { text: "OVERDRIVE!", t: 0, col: C.amber }; SFX.overdrive(); return; }
   if (e.kind === "laststand") { def.last = true; (e.by ? B : A).last = true; chipPop(e.by ? B : A, "last"); return; }
   const tip = atk.tipW || [atk.x + 60 * atk.dir, GROUND - 180];
-  if (atk.kit.weaponType === "blaster") fx.push({ type: "shot", x: tip[0], y: tip[1], vx: 2200 * atk.dir, life: 0, max: .16 });
-  if (e.kind === "miss") { pop(def.x, GROUND - 300, "MISS", "#fff", { size: 34 }); def.hopY = 0; return; }
-  if (e.kind === "dodge") { pop(def.x, GROUND - 300, "DODGE", "#9fe0ff", { size: 34 }); chipPop(def, "dodge"); def.lunge = -90 * def.dir; return; }
-  if (e.block) { pop(def.x, GROUND - 300, "BLOCK", "#7fc4ff", { size: 34 }); chipPop(def, "block"); startMove(def, "block"); for (let i = 0; i < 8; i++) fx.push({ type: "spark", x: tip[0], y: tip[1], vx: rnd(-500, 500), vy: rnd(-500, -50), life: 0, max: .3 }); }
+  if (atk.kit.weaponType === "blaster") { fx.push({ type: "shot", x: tip[0], y: tip[1], vx: 2200 * atk.dir, life: 0, max: .16 }); SFX.shot(); }
+  if (e.kind === "miss") { pop(def.x, GROUND - 300, "MISS", "#fff", { size: 34 }); def.hopY = 0; SFX.miss(); return; }
+  if (e.kind === "dodge") { pop(def.x, GROUND - 300, "DODGE", "#9fe0ff", { size: 34 }); chipPop(def, "dodge"); def.lunge = -90 * def.dir; SFX.dodge(); return; }
+  if (e.block) { SFX.block(); pop(def.x, GROUND - 300, "BLOCK", "#7fc4ff", { size: 34 }); chipPop(def, "block"); startMove(def, "block"); for (let i = 0; i < 8; i++) fx.push({ type: "spark", x: tip[0], y: tip[1], vx: rnd(-500, 500), vy: rnd(-500, -50), life: 0, max: .3 }); }
   if (atk.od > 0) atk.od--;
   // damage shown as a fraction of the defender's hp pool, scaled to a readable number
   def.hp = Math.max(0, def.hp - e.dmg / def.st.hp); def.flash = 1; def.hurt = def.hurtMax = e.crit || e.combo ? .55 : .32; def.heavy = !!(e.crit || e.combo); def.lunge = (e.crit ? 50 : 22) * -def.dir;
   const big = e.crit || e.combo || e.arc;
+  SFX.hit(atk.kit.weaponType, !!e.crit);
   pop(def.x + rnd(-20, 20), GROUND - 310, (e.crit ? "CRIT " : "") + Math.round(e.dmg), e.crit ? C.gold : e.type > 1 ? "#ffe28a" : e.type < 1 ? "#c9d2db" : "#fff", { size: big ? 54 : 40 });
   if (e.type !== 1) pop(def.x, GROUND - 264, e.type > 1 ? "EFFECTIVE" : "RESISTED", e.type > 1 ? "#7cf08a" : "#aab4bf", { size: 24 });
   fx.push({ type: "star", x: tip[0], y: tip[1], life: 0, max: .22, r: big ? 66 : 44, col: e.crit ? C.gold : "#fff" });
@@ -1198,7 +1274,7 @@ function lostScreen(G, ctx) {
 const debug = () => phase;
 function click(G, id) {
   if (id.startsWith("arena:pick:")) { picked = id.slice(11); return; }
-  if (id === "arena:take" && picked) { const r = S.takeBlueprint(G.state, rival.robot[picked]); S.recordFight(G.state, rival, true, G.now(), chance); G.toast(r.star ? "+1 star: " + S.partName(r.part) + " now " + r.part.stars + "/5" : "Blueprint: " + S.partName(r.part)); G.go("workshop"); return; }
+  if (id === "arena:take" && picked) { const r = S.takeBlueprint(G.state, rival.robot[picked]); S.recordFight(G.state, rival, true, G.now(), chance); if (r.star) SFX.star(); G.toast(r.star ? "+1 star: " + S.partName(r.part) + " now " + r.part.stars + "/5" : "Blueprint: " + S.partName(r.part)); G.go("workshop"); return; }
   if (id.startsWith("arena:speed:")) { G.state.fightSpeed = +id.slice(12); G.speed = S.fightSpeed(G.state); return; }
   if (id === "arena:back") G.go("scout");
 }
@@ -1211,6 +1287,7 @@ const { partPower, buildCost, levelCost, BASE, FAMILIES, SLOTS } = __m['rules'];
 const S = __m['state'];
 const { actor, drawActor, stepActor, iconKey, drawPartIcon } = __m['rig'];
 const { SIZE } = __m['scr-base'];
+const { SFX } = __m['sfx'];
 const { C, plate, text, button, bar, rarityBadge, fmtDur, glyph, hotspot } = __m['ui'];
 let me = null, tab = "blueprints", page = 0, flyer = null;
 function enter(G) { me = actor(G.state.robot, { tint: S.hue(G.state) }); page = 0; if (G.state.spare.length && !G.state.blueprints.length) tab = "parts"; }
@@ -1270,9 +1347,9 @@ function click(G, id) {
   const s = G.state, now = G.now();
   if (id.startsWith("ws:tab:")) { tab = id.slice(7); page = 0; return; }
   if (id === "ws:prev") { page--; return; } if (id === "ws:next") { page++; return; }
-  if (id === "ws:level") { const w = Object.values(s.robot).sort((a, b) => partPower(a) - partPower(b))[0]; if (S.levelUp(s, w)) G.toast(S.partName(w) + " level " + w.level); return; }
-  if (id.startsWith("ws:build:")) { const bp = s.blueprints.find(b => b.id === id.slice(9)); if (!bp) return; const m = S.missing(s, buildCost(bp)); if (m.wire && !S.canAfford(s, buildCost(bp))) { G.go("yard"); G.toast("Need " + m.wire + " more wire: dig"); return; } if (S.startBuild(s, bp, now)) { tab = "queue"; G.toast("Building " + S.partName(bp)); } return; }
-  if (id.startsWith("ws:equip:")) { const p = s.spare.find(b => b.id === id.slice(9)); if (!p) return; if (!S.equip(s, p)) { G.toast("Over the reactor cap: upgrade the reactor first"); return; } flyer = { key: iconKey(p), sx: 900, sy: 300, t: 0 }; me = actor(s.robot, { tint: S.hue(s) }); me.flash = 1; G.toast(S.partName(p) + " bolted on, power " + S.power(s).toLocaleString()); return; }
+  if (id === "ws:level") { const w = Object.values(s.robot).sort((a, b) => partPower(a) - partPower(b))[0]; if (S.levelUp(s, w)) { SFX.level(); G.toast(S.partName(w) + " level " + w.level); } else SFX.no(); return; }
+  if (id.startsWith("ws:build:")) { const bp = s.blueprints.find(b => b.id === id.slice(9)); if (!bp) return; const m = S.missing(s, buildCost(bp)); if (m.wire && !S.canAfford(s, buildCost(bp))) { G.go("yard"); G.toast("Need " + m.wire + " more wire: dig"); return; } if (S.startBuild(s, bp, now)) { tab = "queue"; SFX.build(); G.toast("Building " + S.partName(bp)); } return; }
+  if (id.startsWith("ws:equip:")) { const p = s.spare.find(b => b.id === id.slice(9)); if (!p) return; if (!S.equip(s, p)) { G.toast("Over the reactor cap: upgrade the reactor first"); return; } flyer = { key: iconKey(p), sx: 900, sy: 300, t: 0 }; me = actor(s.robot, { tint: S.hue(s) }); me.flash = 1; SFX.bolt(); G.toast(S.partName(p) + " bolted on, power " + S.power(s).toLocaleString()); return; }
   if (id.startsWith("ws:scrap:")) { const p = s.spare.find(b => b.id === id.slice(9)); if (!p) return; const back = S.scrapPart(s, p); G.toast("+" + back + " scrap"); return; }
 }
 
@@ -1286,6 +1363,7 @@ const { BASE, YARD, tileYield } = __m['rules'];
 const S = __m['state'];
 const { actor, drawActor, stepActor, startMove } = __m['rig'];
 const { SIZE } = __m['scr-base'];
+const { SFX } = __m['sfx'];
 const { C, darkPlate, text, button, bar, pop, hotspot, fmtDur } = __m['ui'];
 const ART = {}; let bgImg = null;
 function loadArt(data) {
@@ -1324,6 +1402,7 @@ function start(G, c, r) {
 function land(G, c, r) {
   const s = G.state, t = S.tileAt(s, c, r), got = S.dig(s, c, r, G.now()); if (!got) return;
   const cx = tileX(c) + TW / 2, cy = tileY(r) + TH / 2;
+  SFX.dig(t.metal); if (got.scrap) SFX.pickup(); if (got.extra) SFX.extra(got.energy >= 0); if (got.vault) SFX.vault();
   for (let i = 0; i < 14; i++) fxs.push({ x: cx + (Math.random() - .5) * 60, y: cy + (Math.random() - .5) * 40, vx: (Math.random() - .5) * 420, vy: -150 - Math.random() * 350, r: 5 + Math.random() * 8, col: t.metal ? "#9aa5b1" : "#8a5a36", life: 0, max: .5 + Math.random() * .4 });
   pop(cx, cy - 10, "+" + got.scrap + " SCRAP", "#fff", { size: 24 });
   if (got.wire) pop(cx, cy + 22, "+" + got.wire + " WIRE", "#8fe3ff", { size: 22, delay: .15 });
@@ -1523,6 +1602,7 @@ const Workshop = __m['scr-workshop'];
 const Yard = __m['scr-yard'];
 const Tut = __m['tut'];
 const Shop = __m['scr-shop'];
+const { SFX, unlock, setMuted, isMuted } = __m['sfx'];
 const SCREENS = { base: Base, scout: Scout, arena: Arena, workshop: Workshop, yard: Yard, shop: Shop };
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 const W = 1280, H = 720;
@@ -1541,7 +1621,7 @@ async function boot() {
   await loadParts(parts);
   const yardArt = window.BB_YARD || await (await fetch("art/bb/yard.json")).json();
   await Yard.loadArt(yardArt);
-  G.state = S.load(G.now());
+  G.state = S.load(G.now()); setMuted(!!G.state.muted);
   G.go(location.hash === "#reset" ? (G.state = S.reset(G.now()), "base") : "base");
   requestAnimationFrame(frame);
 }
@@ -1574,6 +1654,8 @@ function topBar() {
   const items = [["energy", Math.floor(s.energy.value) + " / " + cap, s.energy.value < cap ? "+1 in " + fmtDurS(nxt) : "full"], ["scrap", s.inventory.scrap.toLocaleString(), "from digging"], ["wire", String(s.inventory.wire), "deep layers"], ["cores", String(s.inventory.cores), "vaults"], ["gems", String(s.gems), "skip timers"]];
   items.forEach(([k, v, sub], i) => { const x = 50 + i * 200; glyph(ctx, k, x, 46, 1); text(ctx, v, x + 24, 54, 26, "#fff"); text(ctx, sub, x + 24, 70, 11, "#9aa6b2", "left", false); if (k === "gems") hotspot("nav:shop", x - 20, 20, 180, 52); });
   text(ctx, "POWER " + S.power(s).toLocaleString(), 1236, 54, 24, C.gold, "right");
+  // mute toggle
+  ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.beginPath(); ctx.roundRect(1010, 30, 36, 32, 10); ctx.fill(); ctx.fillStyle = isMuted() ? "#7a8694" : "#fff"; ctx.beginPath(); ctx.moveTo(1018, 41); ctx.lineTo(1024, 41); ctx.lineTo(1031, 35); ctx.lineTo(1031, 57); ctx.lineTo(1024, 51); ctx.lineTo(1018, 51); ctx.closePath(); ctx.fill(); if (isMuted()) { ctx.strokeStyle = "#ff6b6b"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(1016, 36); ctx.lineTo(1040, 56); ctx.stroke(); } else { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(1033, 46, 6, -0.9, 0.9); ctx.stroke(); } hotspot("mute", 1004, 24, 48, 44);
   text(ctx, S.tier(s).toUpperCase() + " " + s.league.rating + "  -  season ends in " + Math.ceil(S.seasonLeft(now) / 864e5) + " d", 1236, 70, 11, "#9aa6b2", "right", false);
 }
 function nav() {
@@ -1587,14 +1669,15 @@ function toCanvas(e) { const r = cv.getBoundingClientRect(); if (rotated()) retu
 cv.addEventListener("mousemove", e => { const scr = SCREENS[G.screen]; if (scr.hoverAt) { const [x, y] = toCanvas(e); scr.hoverAt(x, y); } });
 // taps: pointerup fires once per tap on touch and mouse alike; click is kept for drives and old browsers
 let lastTap = 0;
-cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; lastTap = Date.now(); e.preventDefault(); const [x, y] = toCanvas(e); const id = hitAt(x, y); if (!id) return; if (Tut.click(G, id)) { S.save(G.state); return; } if (id.startsWith("nav:")) { G.go(id.slice(4)); return; } SCREENS[G.screen].click(G, id); S.save(G.state); });
-cv.addEventListener("click", e => { if (Date.now() - lastTap < 600) return; const [x, y] = toCanvas(e); const id = hitAt(x, y); if (!id) return; if (Tut.click(G, id)) { S.save(G.state); return; } if (id.startsWith("nav:")) { G.go(id.slice(4)); return; } SCREENS[G.screen].click(G, id); S.save(G.state); });
+function handle(id) { unlock(); if (id === "mute") { G.state.muted = !G.state.muted; setMuted(G.state.muted); S.save(G.state); if (!G.state.muted) SFX.tap(); return; } if (Tut.click(G, id)) { S.save(G.state); return; } if (id.startsWith("nav:")) { SFX.nav(); G.go(id.slice(4)); return; } SFX.tap(); SCREENS[G.screen].click(G, id); S.save(G.state); }
+cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; lastTap = Date.now(); e.preventDefault(); const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
+cv.addEventListener("click", e => { if (Date.now() - lastTap < 600) return; const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
 // a small embedded window (a chat viewer's frame): offer the full browser tab, and full screen where the browser allows it
 function smallCheck() { const w = window.innerWidth, h = window.innerHeight, embedded = w < 600 && h < 600, small = embedded && !document.fullscreenElement; document.body.classList.toggle("small", small); const fs = document.getElementById("fsBtn"); if (fs) fs.hidden = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen); }
 window.addEventListener("resize", smallCheck); smallCheck();
 const fsBtn = document.getElementById("fsBtn"); if (fsBtn) fsBtn.addEventListener("click", () => { const el = document.documentElement; const p = el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen ? el.webkitRequestFullscreen() : null; if (p && p.catch) p.catch(() => {}); setTimeout(smallCheck, 500); });
 // debug handle: step time, jump screens, move the clock
-window.__bb = { G, S, phase: () => (SCREENS[G.screen].debug ? SCREENS[G.screen].debug() : G.screen), go: (n, p) => G.go(n, p), click: id => { if (Tut.click(G, id)) return; if (id.startsWith("nav:")) G.go(id.slice(4)); else SCREENS[G.screen].click(G, id); }, step: dt => { SCREENS[G.screen].step(G, dt); if (SCREENS[G.screen].after) SCREENS[G.screen].after(G); stepPops(dt); }, warp: ms => { clock.offset += ms; S.tick(G.state, G.now()); }, hits: () => hits.map(h => h.id) };
+window.__bb = { G, S, SFX, phase: () => (SCREENS[G.screen].debug ? SCREENS[G.screen].debug() : G.screen), go: (n, p) => G.go(n, p), click: id => { if (Tut.click(G, id)) return; if (id.startsWith("nav:")) G.go(id.slice(4)); else SCREENS[G.screen].click(G, id); }, step: dt => { SCREENS[G.screen].step(G, dt); if (SCREENS[G.screen].after) SCREENS[G.screen].after(G); stepPops(dt); }, warp: ms => { clock.offset += ms; S.tick(G.state, G.now()); }, hits: () => hits.map(h => h.id) };
 boot();
 
 return {  };
