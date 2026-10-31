@@ -59,6 +59,8 @@ const BASE = {
   newPlayerRefill: 2,
   startGems: 120,        // enough for several timer skips and energy refills before any timer has to be waited out
   instantBuilds: 2,      // the first builds finish at once: the loop closes in the first session
+  startScrap: 300,       // a new robot comes with scrap for its first common build after one dig
+  autoReserve: 4,        // auto dig stops before the last fight's worth of energy
   levelScrap: 0.11,      // levelling a part from L to L+1 costs 0.11 x its power at L+1, in scrap (about 5x dearer per power than building a rare)
   levelWire: 0.02,       // and 0.02 x in wire from level 10 up
   // energy
@@ -128,10 +130,10 @@ const weightClass = w => (w <= WEIGHT.light.max ? "light" : w <= WEIGHT.medium.m
 
 // battle chips: tactics that fire on their own during a fight. A robot carries 3.
 const CHIPS = {
-  block: { name: "Block Reflex", chance: 0.15, reduce: 0.5 },         // a hit is blocked for half damage
-  dodge: { name: "Dodge Step",   after: 2, chance: 0.8 },             // after 2 hits taken, the next is dodged
-  over:  { name: "Overdrive",    perHit: 0.07, perTaken: 0.035, hits: 3, mult: 1.3, speed: 1.5 },
-  last:  { name: "Last Stand",   below: 0.3, mult: 1.15 },             // under 30% hp, hits 30% harder
+  block: { name: "Block Reflex", chance: 0.14, reduce: 0.5 },         // a hit is blocked for half damage: ~7% of incoming damage
+  dodge: { name: "Dodge Step",   after: 6, chance: 0.45 },            // after 6 hits taken, the next is dodged 45%: ~6% of incoming damage
+  over:  { name: "Overdrive",    perHit: 0.05, perTaken: 0.025, hits: 3, mult: 1.25, speed: 1.5 },  // one burst per ~18 hits: ~6% more damage out
+  last:  { name: "Last Stand",   below: 0.45, mult: 1.25 },            // under 45% hp, hits 25% harder: ~7% more damage out over a close fight
 };
 
 // ---- the yard: a seeded grid, a vault in the bottom row, signals that tell how close it is ----
@@ -306,7 +308,7 @@ function newState(now = Date.now()) {
     loadouts: [clone(robot), null, null],     // 3 saved attack builds; [0] mirrors robot until the player edits
     defense: clone(robot),                    // what others fight
     chips: ["block", "over", "last"],
-    inventory: { scrap: 0, wire: 0, cores: 0 },
+    inventory: { scrap: BASE.startScrap, wire: 0, cores: 0 },
     blueprints: [],                           // parts won, not yet built
     spare: [],                                // built parts not on the robot
     queue: [],                                // { part, done: timestamp }
@@ -513,7 +515,7 @@ const uidNum = s => parseInt(uid(s), 36);
 function autoDig(s) {
   const cols = []; for (let vc = 0; vc < BASE.yardCols; vc++) { let ok = true; for (const k of s.yard.open) { const [c, r] = k.split(",").map(Number); const d = Math.abs(c - vc) + Math.abs(r - (BASE.yardLayers - 1)); let sig = d === 0 ? 6 : 5; for (const b of YARD.signalBands) if (d > b) sig--; if (sig !== yardSignal(s.yard.no, c, r)) { ok = false; break; } } if (ok) cols.push(vc); }
   let best = null, bs = 1e9;
-  for (let r = 0; r < BASE.yardLayers; r++) for (let c = 0; c < BASE.yardCols; c++) { if (!canDig(s, c, r)) continue; const cost = digCostAt(s, c, r); if (cost > s.energy.value) continue; const d = Math.min(...cols.map(vc => Math.abs(c - vc) + Math.abs(r - (BASE.yardLayers - 1)))); const score = d * 10 + cost * 3 + (s.yard.pos ? Math.abs(c - s.yard.pos.c) + Math.abs(r - s.yard.pos.r) : 0); if (score < bs) { bs = score; best = [c, r]; } }
+  for (let r = 0; r < BASE.yardLayers; r++) for (let c = 0; c < BASE.yardCols; c++) { if (!canDig(s, c, r)) continue; const cost = digCostAt(s, c, r); if (cost > s.energy.value - BASE.autoReserve) continue; const d = Math.min(...cols.map(vc => Math.abs(c - vc) + Math.abs(r - (BASE.yardLayers - 1)))); const ex = tileAt(s, c, r).extra, bonus = ex && ex !== "oil" && ex !== "drone" ? -6 : ex === "oil" ? 8 : 0; const score = d * 10 + cost * 3 + bonus + (s.yard.pos ? Math.abs(c - s.yard.pos.c) + Math.abs(r - s.yard.pos.r) : 0); if (score < bs) { bs = score; best = [c, r]; } }
   return best;
 }
 
@@ -706,7 +708,7 @@ function hitAt(px, py) { for (let i = hits.length - 1; i >= 0; i--) { const h = 
 
 // ---- floating numbers and call-outs ----
 const pops = [];
-function pop(x, y, v, col = "#fff", opts = {}) { pops.push({ x, y, v, col, life: 0, ...opts }); }
+function pop(x, y, v, col = "#fff", opts = {}) { for (const p of pops) if (Math.abs(p.x - x) < 90 && Math.abs(p.y - y) < 48 && p.life < .35) p.y -= 44; pops.push({ x, y, v, col, life: 0, ...opts }); }
 function stepPops(dt) { for (const p of pops) { if (p.delay > 0) { p.delay -= dt; continue; } p.life += dt; } for (let i = pops.length; i--;) if (pops[i].life >= (pops[i].dur || 1)) pops.splice(i, 1); }
 function drawPops(ctx) {
   for (const p of pops) { if (p.delay > 0) continue; const d = p.dur || 1, k = p.life / d, y = p.y - 55 * (1 - Math.pow(1 - Math.min(1, k * 1.4), 3));
@@ -995,6 +997,7 @@ function offer(state, day = Math.floor(Date.now() / 864e5)) {
     const firstTime = state.league.wins + state.league.losses === 0 && i === 0;   // a new player's first rival is the one their weapon beats: the counter system, shown
     do { r = makeRival(day * 1000 + state.league.wins * 7 + (state.rerolls || 0) * 977 + i * 31 + tries * 101, Math.round(base * spreads[i] * (0.97 + 0.06 * ((i * 7919 + day) % 7) / 7)), null, firstTime ? preyOf(state.robot) : null); tries++; }
     while ((used.has(r.name) || used.has(r.robot.arm.family)) && tries < 8);
+    if (firstTime) { r.robot.arm = makePart("arm", r.robot.arm.family, "rare", 1); for (const p of Object.values(r.robot)) p.level = 1; }   // and wears a rare arm: the first prize is a real upgrade
     used.add(r.name); used.add(r.robot.arm.family);
     r.reward = bestPart(r.robot); out.push(r);
   }
@@ -1079,7 +1082,8 @@ function draw(G, ctx) {
     const p = Math.round(ch * 100), col = p >= 60 ? C.green : p >= 40 ? "#d08a00" : C.red;
     text(ctx, p + "%", x + CARD_W / 2, y + 444, 50, col, "center"); text(ctx, "WIN CHANCE (simulated)", x + CARD_W / 2, y + 461, 12, C.muted, "center", false);
     bar(ctx, x + 24, y + 468, CARD_W - 48, 8, ch, col);
-    text(ctx, "Rating +" + ratingDelta(true, ch) + " win / " + ratingDelta(false, ch) + " loss", x + CARD_W / 2, y + 490, 11, C.muted, "center", false);
+    const rw = ratingDelta(true, ch), rl = ratingDelta(false, ch);
+    text(ctx, rw <= 2 ? "Sure win: the part, no rating" : "Rating +" + rw + " win / " + rl + " loss", x + CARD_W / 2, y + 490, 11, rw <= 2 ? C.muted : C.ink, "center", false);
     drawPartIcon(ctx, iconKey(r.reward), x + 30, y + 504, 22); text(ctx, "Prize: " + S.partName(r.reward), x + 46, y + 508, 11, C.ink, "left", false);
     button(ctx, "scout:fight:" + i, x + 50, y + CARD_H - 44, CARD_W - 100, 36, S.canFight(s) ? "FIGHT  " + BASE.fightEnergy + " ENERGY" : "NO ENERGY", C.red, S.canFight(s), 17);
   });
@@ -1440,7 +1444,7 @@ function draw(G, ctx) {
     const y = tileY(r); if (y + TH < 80 || y > H - 40) continue;
     for (let c = 0; c < BASE.yardCols; c++) {
       const x = tileX(c), open = s.yard.open.includes(S.tileKey(c, r)), t = S.tileAt(s, c, r);
-      if (open) { ctx.drawImage(ART.hole, x, y, TW, TH); if (t.vault) ctx.drawImage(ART.vault, x + 10, y + 8, TW - 20, TH - 16); pips(ctx, x + 8, y + 10, t.signal, 1); continue; }
+      if (open) { ctx.drawImage(ART.hole, x, y, TW, TH); if (t.vault) ctx.drawImage(ART.vault, x + 10, y + 8, TW - 20, TH - 16); else bigPips(ctx, x + TW / 2, y + TH / 2, t.signal); continue; }
       ctx.drawImage(ART[t.metal ? (r > 12 ? "steel" : "metal") : (t.extra ? t.extra : "dirt")], x, y, TW, TH);
       if (t.metal && t.extra) ctx.drawImage(ART[t.extra], x + 28, y + 24, TW - 56, TH - 48);
       const can = S.canDig(s, c, r), cost = S.digCostAt(s, c, r);
@@ -1464,7 +1468,7 @@ function draw(G, ctx) {
   text(ctx, "SIGNAL", px + 16, py + 108, 16, "#fff"); pips(ctx, px + 86, py + 98, 1, 1); text(ctx, "far", px + 160, py + 110, 12, "#9aa6b2", "left", false);
   pips(ctx, px + 86, py + 122, 5, 1); text(ctx, "close", px + 160, py + 134, 12, "#9aa6b2", "left", false);
   text(ctx, "Each open tile shows how close the vault is.", px + 16, py + 156, 12, "#9aa6b2", "left", false);
-  text(ctx, "Dirt 1 energy, metal " + (s.robot.arm.family === "sawbot" ? "1 (saw arm)" : "2") + ".", px + 16, py + 174, 12, "#9aa6b2", "left", false);
+  text(ctx, "Dirt 1 energy, metal " + (s.robot.arm.family === "sawbot" ? "1 (saw arm)" : "2") + ". Auto dig keeps " + BASE.autoReserve + " for a fight.", px + 16, py + 174, 12, "#9aa6b2", "left", false);
   text(ctx, scanner ? "Scanner visor: sees tiles next to you." : "A Volt head would scan nearby tiles.", px + 16, py + 192, 12, scanner ? "#7cf08a" : "#9aa6b2", "left", false);
   const yv = tileYield(Math.min(BASE.yardLayers, (s.yard.pos ? s.yard.pos.r + 2 : 1))); text(ctx, "Next layer pays " + Math.round(yv.scrap) + " scrap" + (yv.wire >= 1 ? ", " + Math.round(yv.wire) + " wire" : "") + " a tile.", px + 16, py + 214, 12, "#9aa6b2", "left", false);
   text(ctx, "Blueprint pieces " + s.yard.pieces + " / " + YARD.piecesPerBlueprint, px + 16, py + 242, 13, "#fff", "left", false); bar(ctx, px + 16, py + 252, 208, 8, s.yard.pieces / YARD.piecesPerBlueprint, C.blue, "#2b3440");
@@ -1476,11 +1480,13 @@ function draw(G, ctx) {
     text(ctx, "THE YARD", 640, 198, 32, C.ink, "center");
     const L = ["A vault is hidden somewhere in the bottom row.", "Tap a glowing tile to dig it. Dirt costs 1 energy, metal 2.", "Every open tile shows pips: more pips, closer to the vault.", "Dig toward the strongest signal. Wrong guesses cost energy.", "Short on time? AUTO DIG reads the pips for you."];
     L.forEach((l, i) => text(ctx, l, 640, 246 + i * 36, 17, C.ink, "center", false));
-    for (let i = 0; i < 5; i++) { ctx.fillStyle = ["#4fb6ff", "#7cd0a0", "#ffd23f", "#ff9a3c", "#ff4d3c"][i]; ctx.beginPath(); ctx.roundRect(500 + i * 56, 440, 44, 14, 4); ctx.fill(); } text(ctx, "far", 470, 452, 13, C.muted, "right", false); text(ctx, "close", 800, 452, 13, C.muted, "left", false);
+    bigPips(ctx, 560, 452, 1); bigPips(ctx, 720, 452, 5);
+    text(ctx, "far", 490, 457, 13, C.muted, "right", false); text(ctx, "close", 790, 457, 13, C.muted, "left", false);
     button(ctx, "yard:intro", 500, 480, 280, 44, "GOT IT", C.green, true, 20); }
   if (S.vaultOpen(s)) { text(ctx, "VAULT OPENED. New yard in " + fmtDur(S.nextYardIn(G.now())) + ".", 1135, H - 160, 14, C.gold, "center"); }
-  { const any = !!S.autoDig(s); button(ctx, "yard:auto", 1010, H - 130, 250, 44, auto ? "STOP AUTO DIG" : "AUTO DIG", auto ? C.red : C.rust, any || auto, 20); text(ctx, auto ? "Digging for you, reading the signals." : s.energy.value < 1 ? "No energy. +1 every 5 min." : "Or tap any glowing tile to dig it.", 1135, H - 140, 12, "#fff", "center", false); }
+  { const any = !!S.autoDig(s); button(ctx, "yard:auto", 1010, H - 130, 250, 44, auto ? "STOP AUTO DIG" : "AUTO DIG", auto ? C.red : C.rust, any || auto, 20); text(ctx, auto ? "Digging for you; stops with " + BASE.autoReserve + " energy left for a fight." : s.energy.value < 1 ? "No energy: it refills on its own (see the top bar)." : "Or tap any glowing tile to dig it.", 1135, H - 140, 12, "#fff", "center", false); }
 }
+function bigPips(ctx, cx, cy, n) { const cols = ["#4fb6ff", "#7cd0a0", "#ffd23f", "#ff9a3c", "#ff4d3c"]; darkPlate(ctx, cx - 44, cy - 16, 88, 32, 10, .85); for (let i = 0; i < 5; i++) { ctx.fillStyle = i < Math.min(5, n) ? cols[Math.min(5, n) - 1] : "#3a434e"; ctx.beginPath(); ctx.roundRect(cx - 38 + i * 16, cy - 8, 12, 16, 3); ctx.fill(); } }
 function pips(ctx, x, y, n, a) { ctx.globalAlpha = a; darkPlate(ctx, x - 4, y - 6, 68, 20, 10, .8); const cols = ["#4fb6ff", "#7cd0a0", "#ffd23f", "#ff9a3c", "#ff4d3c"]; for (let i = 0; i < 5; i++) { ctx.fillStyle = i < Math.min(5, n) ? cols[Math.min(5, n) - 1] : "#3a434e"; ctx.beginPath(); ctx.roundRect(x + i * 12, y - 1, 9, 10, 3); ctx.fill(); } ctx.globalAlpha = 1; }
 function hoverAt(x, y) { hover = null; for (let r = 0; r < BASE.yardLayers; r++) for (let c = 0; c < BASE.yardCols; c++) { const tx = tileX(c), ty = tileY(r); if (x >= tx && x <= tx + TW && y >= ty && y <= ty + TH) hover = [c, r]; } }
 function click(G, id) {
@@ -1507,7 +1513,7 @@ const STEPS = [
   { screen: "arena", at: "left", text: ["You win a blueprint:", "take any one part.", "A part you already wear", "gives a star instead (+8%)."], target: "arena:take", lost: ["Lost this one. Energy is the only cost.", "Back in the arena, pick a rival with better odds."], done: G => G.screen !== "arena" },
   { screen: "workshop", at: "bottom", text: ["Blueprints need scrap and wire to build, and time.", "Dig them up in the YARD."], target: "nav:yard", done: G => G.screen === "yard" },
   { screen: "yard", at: "sky", text: ["Dig three tiles: tap the glowing ones.", "More pips on an open tile means", "the vault is closer. AUTO DIG can", "read them for you."], target: "yard:auto", done: G => G.state.yard.open.length >= 3 },
-  { screen: "yard", at: "sky", text: ["Energy refills on its own, twice as", "fast today. Gems refill it at once;", "your first builds finish instantly.", "Now build the part in the WORKSHOP."], target: "nav:workshop", done: G => G.screen === "workshop" },
+  { screen: "yard", at: "sky", text: ["Energy refills on its own (see the", "top bar). Your first two builds finish", "at once, and you have scrap for one.", "Build the part in the WORKSHOP."], target: "nav:workshop", done: G => G.screen === "workshop" },
 ];
 let pulse = 0, lastScreen = null;
 
@@ -1682,7 +1688,7 @@ function topBar() {
   const s = G.state, now = G.now();
   darkPlate(ctx, 20, 14, 1240, 64, 20, .9);
   const cap = S.energyCap(s), nxt = S.nextEnergyIn(s, now);
-  const items = [["energy", Math.floor(s.energy.value) + " / " + cap, s.energy.value < cap ? "+1 in " + fmtDurS(nxt) : "full"], ["scrap", s.inventory.scrap.toLocaleString(), "from digging"], ["wire", String(s.inventory.wire), "deep layers"], ["cores", String(s.inventory.cores), "vaults"], ["gems", String(s.gems), "skip timers"]];
+  const items = [["energy", Math.floor(s.energy.value) + " / " + cap, s.energy.value < cap ? "+1 in " + fmtDurS(nxt) + (S.isNewPlayer(s, now) ? " (2x today)" : "") : "full"], ["scrap", s.inventory.scrap.toLocaleString(), "from digging"], ["wire", String(s.inventory.wire), "deep layers"], ["cores", String(s.inventory.cores), "vaults"], ["gems", String(s.gems), "skip timers"]];
   items.forEach(([k, v, sub], i) => { const x = 50 + i * 200; glyph(ctx, k, x, 46, 1); text(ctx, v, x + 24, 54, 26, "#fff"); text(ctx, sub, x + 24, 70, 11, "#9aa6b2", "left", false); if (k === "gems") hotspot("nav:shop", x - 20, 20, 180, 52); });
   text(ctx, "POWER " + S.power(s).toLocaleString(), 1236, 54, 24, C.gold, "right");
   // mute toggle
