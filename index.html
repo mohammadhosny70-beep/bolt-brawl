@@ -57,6 +57,8 @@ const BASE = {
   minutesPerPower: 0.2,  // build time = 0.2 min x its power, times the rarity's time factor (a rare arm ~70 min, a mythic ~5 h)
   newPlayerHours: 24,    // the first day: energy refills twice as fast
   newPlayerRefill: 2,
+  startGems: 120,        // enough for several timer skips and energy refills before any timer has to be waited out
+  instantBuilds: 2,      // the first builds finish at once: the loop closes in the first session
   levelScrap: 0.11,      // levelling a part from L to L+1 costs 0.11 x its power at L+1, in scrap (about 5x dearer per power than building a rare)
   levelWire: 0.02,       // and 0.02 x in wire from level 10 up
   // energy
@@ -170,6 +172,7 @@ function crewHaul(hours, layer) { const y = tileYield(Math.max(1, layer)), n = C
 
 // ---- gems and the shop: no ads, no random boxes; gems buy time, packs show their contents ----
 const GEMS = { refill: 12, reroll: 3, skipPer10min: 1 };
+const DAILY = [5, 5, 10, 10, 15, 20, 40];   // gems for coming back, day 1 to 7 of a streak; then it repeats from day 7's value
 const SHOP = {
   gems:  [{ id: "g1", gems: 100, usd: 0.99 }, { id: "g2", gems: 550, usd: 4.99 }, { id: "g3", gems: 1200, usd: 9.99 }, { id: "g4", gems: 6500, usd: 49.99 }],
   packs: [{ id: "p-saw", name: "Sawbot Pack", usd: 2.99, parts: [["arm", "sawbot", "rare"], ["chest", "sawbot", "rare"], ["legs", "sawbot", "common"]] },
@@ -286,12 +289,12 @@ function upgradeCost(id, lv) {   // from lv to lv + 1
 const digCost = (metal, robot) => (metal ? (robot && robot.arm.family === "sawbot" ? 1 : BASE.digMetal) : BASE.digDirt);
 const tileYield = d => ({ scrap: BASE.scrapPerTile(d), wire: BASE.wirePerTile(d) });
 
-return { get rollRarity() { return rollRarity; }, get yardTile() { return yardTile; }, get yardSignal() { return yardSignal; }, get crewHaul() { return crewHaul; }, get preyOf() { return preyOf; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get upgradeCost() { return upgradeCost; }, get BASE() { return BASE; }, get SLOTS() { return SLOTS; }, get DEF_SLOTS() { return DEF_SLOTS; }, get OFF_SLOTS() { return OFF_SLOTS; }, get RARITY() { return RARITY; }, get RARITY_BANDS() { return RARITY_BANDS; }, get MAX_STARS() { return MAX_STARS; }, get FAMILIES() { return FAMILIES; }, get TRAITS() { return TRAITS; }, get TYPE() { return TYPE; }, get ARMORS() { return ARMORS; }, get typeMult() { return typeMult; }, get WEIGHT() { return WEIGHT; }, get weightClass() { return weightClass; }, get CHIPS() { return CHIPS; }, get YARD() { return YARD; }, get yardVault() { return yardVault; }, get CREW() { return CREW; }, get crewHours() { return crewHours; }, get GEMS() { return GEMS; }, get SHOP() { return SHOP; }, get PAINTS() { return PAINTS; }, get paintHue() { return paintHue; }, get CAMPAIGN() { return CAMPAIGN; }, get bossPower() { return bossPower; }, get LEAGUE() { return LEAGUE; }, get fightSpeedFor() { return fightSpeedFor; }, get tierOf() { return tierOf; }, get ratingDelta() { return ratingDelta; }, get seasonId() { return seasonId; }, get seasonEndsIn() { return seasonEndsIn; }, get partPower() { return partPower; }, get makePart() { return makePart; }, get makeRobot() { return makeRobot; }, get generator() { return generator; }, get BUILDINGS() { return BUILDINGS; }, get reactorCap() { return reactorCap; }, get PRESTIGE() { return PRESTIGE; }, get prestigeMult() { return prestigeMult; }, get maxLevel() { return maxLevel; }, get digCost() { return digCost; }, get tileYield() { return tileYield; } };
+return { get rollRarity() { return rollRarity; }, get yardTile() { return yardTile; }, get yardSignal() { return yardSignal; }, get crewHaul() { return crewHaul; }, get preyOf() { return preyOf; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get upgradeCost() { return upgradeCost; }, get BASE() { return BASE; }, get SLOTS() { return SLOTS; }, get DEF_SLOTS() { return DEF_SLOTS; }, get OFF_SLOTS() { return OFF_SLOTS; }, get RARITY() { return RARITY; }, get RARITY_BANDS() { return RARITY_BANDS; }, get MAX_STARS() { return MAX_STARS; }, get FAMILIES() { return FAMILIES; }, get TRAITS() { return TRAITS; }, get TYPE() { return TYPE; }, get ARMORS() { return ARMORS; }, get typeMult() { return typeMult; }, get WEIGHT() { return WEIGHT; }, get weightClass() { return weightClass; }, get CHIPS() { return CHIPS; }, get YARD() { return YARD; }, get yardVault() { return yardVault; }, get CREW() { return CREW; }, get crewHours() { return crewHours; }, get GEMS() { return GEMS; }, get DAILY() { return DAILY; }, get SHOP() { return SHOP; }, get PAINTS() { return PAINTS; }, get paintHue() { return paintHue; }, get CAMPAIGN() { return CAMPAIGN; }, get bossPower() { return bossPower; }, get LEAGUE() { return LEAGUE; }, get fightSpeedFor() { return fightSpeedFor; }, get tierOf() { return tierOf; }, get ratingDelta() { return ratingDelta; }, get seasonId() { return seasonId; }, get seasonEndsIn() { return seasonEndsIn; }, get partPower() { return partPower; }, get makePart() { return makePart; }, get makeRobot() { return makeRobot; }, get generator() { return generator; }, get BUILDINGS() { return BUILDINGS; }, get reactorCap() { return reactorCap; }, get PRESTIGE() { return PRESTIGE; }, get prestigeMult() { return prestigeMult; }, get maxLevel() { return maxLevel; }, get digCost() { return digCost; }, get tileYield() { return tileYield; } };
 })();
 __m['state'] = (function () {
 // Bolt Brawl - the player's state and what time does to it. One object, saved whole; every screen reads
 // and changes it only through the functions here, so the rules are applied in one place.
-const { BASE, SLOTS, makePart, makeRobot, partPower, stats, buildCost, levelCost, generator, tileYield, digCost, upgradeCost, reactorCap, YARD, yardTile, yardVault, yardSignal, rollRarity, FAMILIES, MAX_STARS, PRESTIGE, maxLevel, LEAGUE, tierOf, ratingDelta, seasonId, seasonEndsIn, CREW, crewHours, crewHaul, GEMS, SHOP, CAMPAIGN, PAINTS, paintHue, fightSpeedFor } = __m['rules'];
+const { BASE, SLOTS, makePart, makeRobot, partPower, stats, buildCost, levelCost, generator, tileYield, digCost, upgradeCost, reactorCap, YARD, yardTile, yardVault, yardSignal, rollRarity, FAMILIES, MAX_STARS, PRESTIGE, maxLevel, LEAGUE, tierOf, ratingDelta, seasonId, seasonEndsIn, CREW, crewHours, crewHaul, GEMS, SHOP, CAMPAIGN, PAINTS, paintHue, fightSpeedFor, DAILY } = __m['rules'];
 const SAVE_KEY = "boltbrawl.save.v1";
 const MIN = 60 * 1000;
 
@@ -310,7 +313,10 @@ function newState(now = Date.now()) {
     energy: { value: generator(1).cap, at: now },
     buildings: { gen: 1, asm: 1, dock: 1, reactor: 1 },
     upgrading: null,                          // { id, done }
-    gems: 50,
+    gems: BASE.startGems,
+    buildsDone: 0,                            // the first BASE.instantBuilds finish at once
+    daily: { last: -1, streak: 0 },           // daily gift: last day index claimed, streak length
+    yardSeen: false,
     prestige: 0,                              // reactor rebuilds done: level cap +10 and x1.15 power each
     yard: { no: dayIndex(now), open: [], pos: null, pieces: 0, vaults: 0 },   // today's yard: open tiles as "c,r", where the robot stands; a new yard every day
     league: { rating: LEAGUE.start, wins: 0, losses: 0, season: seasonId(now), best: "Bronze", lastReward: null },
@@ -341,6 +347,9 @@ function load(now = Date.now()) {
   if (!s.campaign) s.campaign = { cleared: 0, kills: 0 };
   if (!s.owned.paints) s.owned.paints = ["factory", "sunset"];
   if (!s.paint) s.paint = "factory";
+  if (s.buildsDone === undefined) s.buildsDone = 0;
+  if (!s.daily) s.daily = { last: -1, streak: 0 };
+  if (s.yardSeen === undefined) s.yardSeen = true;
   if (!s.fightSpeed) s.fightSpeed = 1;
   tick(s, now);
   return s;
@@ -381,6 +390,10 @@ function recordFight(s, rival, won, now, chance = 0.5) {
   note(s, won ? "win" : "loss", rival.name + " (" + (d >= 0 ? "+" : "") + d + ")"); return d;
 }
 const tier = s => tierOf(s.league.rating);
+// the daily gift: once per calendar day; a missed day resets the streak
+const dailyReady = (s, now) => s.daily.last !== dayIndex(now);
+const dailyGems = s => DAILY[Math.min(DAILY.length - 1, s.daily.streak)];
+function claimDaily(s, now) { if (!dailyReady(s, now)) return 0; const d = dayIndex(now); s.daily.streak = s.daily.last === d - 1 ? s.daily.streak + 1 : 0; const g = dailyGems(s); s.gems += g; s.daily.last = d; note(s, "daily", g + " gems"); return g; }
 const maxFightSpeed = s => fightSpeedFor(s.league.best);
 const fightSpeed = s => Math.min(s.fightSpeed, maxFightSpeed(s));
 const hue = s => paintHue(s.paint);
@@ -419,7 +432,8 @@ function startBuild(s, bp, now) {
   if (!canAfford(s, cost) || s.queue.length >= buildSlots(s)) return null;
   s.inventory.scrap -= cost.scrap; s.inventory.wire -= cost.wire; s.inventory.cores -= cost.cores;
   s.blueprints = s.blueprints.filter(b => b.id !== bp.id);
-  const job = { part: clone(bp), start: now, done: now + cost.minutes * MIN };
+  const instant = s.buildsDone < BASE.instantBuilds; s.buildsDone++;
+  const job = { part: clone(bp), start: now, done: instant ? now : now + cost.minutes * MIN, instant };
   s.queue.push(job); note(s, "build", bp); return job;
 }
 function startUpgrade(s, id, now) {
@@ -508,7 +522,7 @@ function uid(s) { s.seed = (s.seed * 1103515245 + 12345) & 0x7fffffff; return s.
 const partName = p => capWord(p.rarity) + " " + capWord(p.family) + " " + ({ head: "Head", chest: "Chest", arm: "Arm", offarm: "Off Arm", legs: "Legs", shoulder: "Shoulder", pack: "Pack" })[p.slot];
 const capWord = x => x[0].toUpperCase() + x.slice(1);
 
-return { get partPower() { return partPower; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get SLOTS() { return SLOTS; }, get makePart() { return makePart; }, get newState() { return newState; }, get load() { return load; }, get save() { return save; }, get reset() { return reset; }, get tick() { return tick; }, get spendEnergy() { return spendEnergy; }, get canFight() { return canFight; }, get recordFight() { return recordFight; }, get applyPaint() { return applyPaint; }, get bossBeaten() { return bossBeaten; }, get takeBlueprint() { return takeBlueprint; }, get startBuild() { return startBuild; }, get startUpgrade() { return startUpgrade; }, get skip() { return skip; }, get rebuild() { return rebuild; }, get sendCrew() { return sendCrew; }, get refillEnergy() { return refillEnergy; }, get rerollRivals() { return rerollRivals; }, get skipCost() { return skipCost; }, get wouldExceedCap() { return wouldExceedCap; }, get equip() { return equip; }, get levelUp() { return levelUp; }, get scrapPart() { return scrapPart; }, get canDig() { return canDig; }, get dig() { return dig; }, get autoDig() { return autoDig; }, get note() { return note; }, get uid() { return uid; }, get SAVE_KEY() { return SAVE_KEY; }, get dayIndex() { return dayIndex; }, get nextYardIn() { return nextYardIn; }, get energyCap() { return energyCap; }, get isNewPlayer() { return isNewPlayer; }, get refillMs() { return refillMs; }, get nextEnergyIn() { return nextEnergyIn; }, get power() { return power; }, get robotStats() { return robotStats; }, get cap() { return cap; }, get fighter() { return fighter; }, get tier() { return tier; }, get maxFightSpeed() { return maxFightSpeed; }, get fightSpeed() { return fightSpeed; }, get hue() { return hue; }, get ownsPaint() { return ownsPaint; }, get seasonLeft() { return seasonLeft; }, get isDuplicate() { return isDuplicate; }, get canAfford() { return canAfford; }, get missing() { return missing; }, get buildSlots() { return buildSlots; }, get overCap() { return overCap; }, get canRebuild() { return canRebuild; }, get rebuildBlockers() { return rebuildBlockers; }, get crewMaxHours() { return crewMaxHours; }, get levelCap() { return levelCap; }, get tileKey() { return tileKey; }, get isOpen() { return isOpen; }, get tileAt() { return tileAt; }, get digCostAt() { return digCostAt; }, get hasScanner() { return hasScanner; }, get vaultOpen() { return vaultOpen; }, get partName() { return partName; } };
+return { get partPower() { return partPower; }, get stats() { return stats; }, get buildCost() { return buildCost; }, get levelCost() { return levelCost; }, get SLOTS() { return SLOTS; }, get makePart() { return makePart; }, get newState() { return newState; }, get load() { return load; }, get save() { return save; }, get reset() { return reset; }, get tick() { return tick; }, get spendEnergy() { return spendEnergy; }, get canFight() { return canFight; }, get recordFight() { return recordFight; }, get claimDaily() { return claimDaily; }, get applyPaint() { return applyPaint; }, get bossBeaten() { return bossBeaten; }, get takeBlueprint() { return takeBlueprint; }, get startBuild() { return startBuild; }, get startUpgrade() { return startUpgrade; }, get skip() { return skip; }, get rebuild() { return rebuild; }, get sendCrew() { return sendCrew; }, get refillEnergy() { return refillEnergy; }, get rerollRivals() { return rerollRivals; }, get skipCost() { return skipCost; }, get wouldExceedCap() { return wouldExceedCap; }, get equip() { return equip; }, get levelUp() { return levelUp; }, get scrapPart() { return scrapPart; }, get canDig() { return canDig; }, get dig() { return dig; }, get autoDig() { return autoDig; }, get note() { return note; }, get uid() { return uid; }, get SAVE_KEY() { return SAVE_KEY; }, get dayIndex() { return dayIndex; }, get nextYardIn() { return nextYardIn; }, get energyCap() { return energyCap; }, get isNewPlayer() { return isNewPlayer; }, get refillMs() { return refillMs; }, get nextEnergyIn() { return nextEnergyIn; }, get power() { return power; }, get robotStats() { return robotStats; }, get cap() { return cap; }, get fighter() { return fighter; }, get tier() { return tier; }, get dailyReady() { return dailyReady; }, get dailyGems() { return dailyGems; }, get maxFightSpeed() { return maxFightSpeed; }, get fightSpeed() { return fightSpeed; }, get hue() { return hue; }, get ownsPaint() { return ownsPaint; }, get seasonLeft() { return seasonLeft; }, get isDuplicate() { return isDuplicate; }, get canAfford() { return canAfford; }, get missing() { return missing; }, get buildSlots() { return buildSlots; }, get overCap() { return overCap; }, get canRebuild() { return canRebuild; }, get rebuildBlockers() { return rebuildBlockers; }, get crewMaxHours() { return crewMaxHours; }, get levelCap() { return levelCap; }, get tileKey() { return tileKey; }, get isOpen() { return isOpen; }, get tileAt() { return tileAt; }, get digCostAt() { return digCostAt; }, get hasScanner() { return hasScanner; }, get vaultOpen() { return vaultOpen; }, get partName() { return partName; } };
 })();
 __m['rig'] = (function () {
 // Bolt Brawl - the rig: draws any rules robot from the cut parts, at any size, in any pose. The one place
@@ -800,7 +814,8 @@ __m['scr-base'] = (function () {
 const { stats, BUILDINGS, upgradeCost, reactorCap, FAMILIES, PRESTIGE, LEAGUE, CREW, crewHaul, fightSpeedFor } = __m['rules'];
 const S = __m['state'];
 const { actor, drawActor, stepActor } = __m['rig'];
-const { C, plate, darkPlate, text, outlined, button, bar, typeBadge, chipIcon, fmtDur, glyph, hotspot } = __m['ui'];
+const { C, plate, darkPlate, text, outlined, button, bar, typeBadge, chipIcon, fmtDur, glyph, hotspot, outlined : _o } = __m['ui'];
+const { DAILY } = __m['rules'];
 const { SFX } = __m['sfx'];
 const SIZE = { garage: 300, arena: 300, card: 150, yard: 150 };   // robot heights in px: the one scale table
 let me = null, lastRobot = null;
@@ -818,7 +833,7 @@ function draw(G, ctx) {
   text(ctx, "Your attack build. Defense build: " + (JSON.stringify(s.defense) === JSON.stringify(s.robot) ? "same as this" : "set separately"), 40, 160, 14, C.muted, "left", false);
   ctx.fillStyle = "#c9d3dc"; ctx.fillRect(36, 172, 468, 300); ctx.fillStyle = "#4b5866"; ctx.fillRect(36, 442, 468, 30);
   ctx.fillStyle = "#f0c419"; for (let i = 0; i < 10; i++) { ctx.beginPath(); ctx.moveTo(36 + i * 50, 442); ctx.lineTo(61 + i * 50, 442); ctx.lineTo(46 + i * 50, 472); ctx.lineTo(21 + i * 50, 472); ctx.fill(); }
-  ctx.save(); ctx.beginPath(); ctx.rect(36, 172, 468, 300); ctx.clip(); drawActor(ctx, me, 200, 444, SIZE.garage); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.rect(36, 172, 468, 300); ctx.clip(); drawActor(ctx, me, 200, 446, SIZE.garage * .88); ctx.restore();
   const st = S.robotStats(s);
   text(ctx, "POWER", 380, 205, 16, C.muted); text(ctx, st.power.toLocaleString(), 380, 240, 34, S.overCap(s) ? C.red : C.ink);
   text(ctx, "cap " + S.cap(s).toLocaleString() + (s.prestige ? ", rebuilt x" + s.prestige + " (x" + Math.pow(PRESTIGE.mult, s.prestige).toFixed(2) + ")" : ""), 380, 258, 12, S.overCap(s) ? C.red : C.muted, "left", false);
@@ -865,11 +880,13 @@ function draw(G, ctx) {
   if (s.upgrading) { text(ctx, "Upgrading " + BUILDINGS[s.upgrading.id].name, 560, y + 4, 17, C.ink, "left", false); text(ctx, fmtDur(s.upgrading.done - now), 1240, y + 4, 17, C.amber, "right"); y += 40; }
   if (s.queue.length || s.upgrading) { const j = [...s.queue, ...(s.upgrading ? [s.upgrading] : [])].sort((a, b) => a.done - b.done)[0]; const g = S.skipCost(j, now); button(ctx, "base:skip", 560, y, 260, 34, "FINISH NOW: " + g + " GEMS", C.purple, s.gems >= g, 17); y += 50; }
   text(ctx, "LATELY", 560, y + 20, 20); y += 40;
-  const words = { win: "Beat", loss: "Lost to", blueprint: "Took blueprint:", star: "+1 star:", build: "Started building", built: "Finished:", equip: "Bolted on", vault: "Opened a vault: +1 core", upgraded: "Upgraded", rebuild: "Rebuilt the reactor", yard: "A new yard opened", season: "Season ended at", crew: "Crew back with", crewout: "Crew sent out for" };
+  const words = { win: "Beat", loss: "Lost to", blueprint: "Took blueprint:", star: "+1 star:", build: "Started building", built: "Finished:", equip: "Bolted on", vault: "Opened a vault: +1 core", upgraded: "Upgraded", rebuild: "Rebuilt the reactor", yard: "A new yard opened", season: "Season ended at", crew: "Crew back with", crewout: "Crew sent out for", daily: "Daily gift:" };
   for (const e of s.log.slice(0, 5)) { text(ctx, (words[e.kind] || e.kind) + (e.what ? " " + (typeof e.what === "string" ? e.what : "") : ""), 560, y, 15, C.muted, "left", false); y += 24; }
   if (!s.log.length) text(ctx, "Nothing yet. Scout a rival to start.", 560, y, 15, C.muted, "left", false);
   button(ctx, "base:setdef", 1000, 450, 240, 36, "USE AS DEFENSE BUILD", C.green, true, 16);
   button(ctx, "base:reset", 560, 450, 150, 36, G.confirmReset ? "TAP AGAIN: RESET" : "START OVER", G.confirmReset ? C.red : C.muted, true, 14);
+  // daily gift
+  { const ready = S.dailyReady(s, now), g = S.dailyGems(s); button(ctx, "base:daily", 730, 450, 250, 36, ready ? "DAILY GIFT: +" + g + " GEMS" : "DAILY GIFT TAKEN, DAY " + Math.min(7, s.daily.streak + 1), ready ? C.purple : C.muted, ready, 14); }
 }
 function click(G, id) {
   const s = G.state, now = G.now();
@@ -878,6 +895,7 @@ function click(G, id) {
   if (id === "base:rebuild") { if (S.rebuild(s)) { SFX.boss(); G.toast("Reactor rebuilt: level cap " + S.levelCap(s) + ", power x" + Math.pow(PRESTIGE.mult, s.prestige).toFixed(2)); } else { SFX.no(); G.toast("Rebuild needs " + S.rebuildBlockers(s).join(", ") + " (gives cap +" + PRESTIGE.levels + " levels, x" + PRESTIGE.mult + " power)"); } return; }
   if (id === "base:crew") { if (S.sendCrew(s, S.crewMaxHours(s), now)) G.toast("Crew sent for " + S.crewMaxHours(s) + " h; a higher dock keeps them out longer"); return; }
   if (id === "base:reset") { if (G.confirmReset) { G.state = S.reset(now); G.confirmReset = false; G.go("base"); G.toast("Fresh start"); } else { G.confirmReset = true; G.toast("Tap START OVER again to wipe this save"); setTimeout(() => { G.confirmReset = false; }, 4000); } return; }
+  if (id === "base:daily") { const g = S.claimDaily(s, now); if (g) { SFX.gems(); G.toast("+" + g + " gems. Come back tomorrow for more; the streak grows to " + DAILY[DAILY.length - 1] + "."); } return; }
   if (id === "base:setdef") { s.defense = JSON.parse(JSON.stringify(s.robot)); G.toast("Defense build saved"); }
 }
 
@@ -1326,13 +1344,13 @@ function draw(G, ctx) {
     const mine = s.robot[p.slot], gain = Math.round(partPower(p) - partPower(mine));
     text(ctx, gain > 0 ? "+" + gain + " over your " + SLOT_LABEL[p.slot].toLowerCase() : "not better than your " + SLOT_LABEL[p.slot].toLowerCase(), x + 190, y + 72, 13, gain > 0 ? C.green : C.muted, "left", false);
     if (tab === "blueprints") {
-      const cost = buildCost(p), m = S.missing(s, cost), ok = S.canAfford(s, cost) && s.queue.length < S.buildSlots(s);
+      const cost = buildCost(p), m = S.missing(s, cost), ok = S.canAfford(s, cost) && s.queue.length < S.buildSlots(s), instant = s.buildsDone < BASE.instantBuilds;
       const need = [["scrap", cost.scrap, m.scrap], ["wire", cost.wire, m.wire]]; if (cost.cores) need.push(["cores", cost.cores, m.cores]);
       need.forEach(([k, n, miss], j) => { glyph(ctx, k, x + 470, y + 20 + j * 22, .55); text(ctx, n + (miss ? "  (missing " + miss + ")" : ""), x + 486, y + 25 + j * 22, 13, miss ? C.red : C.green, "left", false); });
-      text(ctx, fmtDur(cost.minutes * 60000), x + 470, y + 78, 12, C.muted, "left", false);
+      text(ctx, instant ? "instant (first " + BASE.instantBuilds + " builds)" : fmtDur(cost.minutes * 60000), x + 470, y + 78, 12, instant ? C.green : C.muted, "left", false);
       button(ctx, "ws:build:" + p.id, x + 620, y + 24, 106, 38, ok ? "BUILD" : s.queue.length >= S.buildSlots(s) ? "SLOT FULL" : m.wire ? "DIG WIRE" : m.cores ? "NEED CORE" : "NO SCRAP", ok ? C.green : C.rust, ok || !!m.wire, 15);
     } else if (tab === "queue") {
-      const q = s.queue.find(q => q.part === p); text(ctx, "DONE IN " + fmtDur(q.done - now), x + 560, y + 36, 17, C.amber, "left"); bar(ctx, x + 470, y + 50, 250, 10, 1 - (q.done - now) / (q.done - q.start), C.amber);
+      const q = s.queue.find(q => q.part === p); text(ctx, q.done <= now ? "DONE" : "DONE IN " + fmtDur(q.done - now), x + 560, y + 36, 17, C.amber, "left"); bar(ctx, x + 470, y + 50, 250, 10, 1 - (q.done - now) / (q.done - q.start), C.amber);
       const g = S.skipCost(q, now); button(ctx, "ws:skip", x + 470, y + 62, 250, 0, "", C.purple, false);
     } else {
       const over = S.wouldExceedCap(s, p.slot, p);
@@ -1364,18 +1382,18 @@ const S = __m['state'];
 const { actor, drawActor, stepActor, startMove } = __m['rig'];
 const { SIZE } = __m['scr-base'];
 const { SFX } = __m['sfx'];
-const { C, darkPlate, text, button, bar, pop, hotspot, fmtDur } = __m['ui'];
+const { C, darkPlate, text, button, bar, pop, hotspot, fmtDur, plate, outlined } = __m['ui'];
 const ART = {}; let bgImg = null;
 function loadArt(data) {
   return Promise.all(Object.entries(data).map(([k, src]) => new Promise(res => { const im = new Image(); im.onload = () => res(); im.onerror = () => res(); im.src = src; if (k === "backdrop") bgImg = im; else ART[k] = im; })));
 }
 const W = 1280, H = 720, TW = 100, TH = 90, GX = 290, SURFACE = 300;   // grid 290..990; panel left of it, buttons right of it   // where the top row starts when the camera is at the top
-let me = null, busy = null, cam = 0, camT = 0, hover = null, auto = false, hint = 0, fxs = [], lastYard = -1;
+let intro = false, me = null, busy = null, cam = 0, camT = 0, hover = null, auto = false, hint = 0, fxs = [], lastYard = -1;
 
 const tileX = c => GX + c * TW, tileY = r => SURFACE + r * TH - cam;
 const standAt = s => (s.yard.pos ? [tileX(s.yard.pos.c) + TW / 2, tileY(s.yard.pos.r) + TH - 6] : [tileX(Math.floor(BASE.yardCols / 2)) + TW / 2, SURFACE - 2 - cam]);
 
-function enter(G) { me = actor(G.state.robot, { tint: S.hue(G.state) }); busy = null; auto = false; hover = null; fxs = []; lastYard = G.state.yard.no; cam = camT = targetCam(G.state); me.x = standAt(G.state)[0]; }
+function enter(G) { me = actor(G.state.robot, { tint: S.hue(G.state) }); busy = null; intro = !G.state.yardSeen; auto = false; hover = null; fxs = []; lastYard = G.state.yard.no; cam = camT = targetCam(G.state); me.x = standAt(G.state)[0]; }
 function targetCam(s) { const r = s.yard.pos ? s.yard.pos.r : -1; return Math.max(0, Math.min((BASE.yardLayers - 3) * TH, (r - 1) * TH)); }
 
 function step(G, dt) {
@@ -1449,6 +1467,15 @@ function draw(G, ctx) {
   const yv = tileYield(Math.min(BASE.yardLayers, (s.yard.pos ? s.yard.pos.r + 2 : 1))); text(ctx, "Next layer pays " + Math.round(yv.scrap) + " scrap" + (yv.wire >= 1 ? ", " + Math.round(yv.wire) + " wire" : "") + " a tile.", px + 16, py + 214, 12, "#9aa6b2", "left", false);
   text(ctx, "Blueprint pieces " + s.yard.pieces + " / " + YARD.piecesPerBlueprint, px + 16, py + 242, 13, "#fff", "left", false); bar(ctx, px + 16, py + 252, 208, 8, s.yard.pieces / YARD.piecesPerBlueprint, C.blue, "#2b3440");
   text(ctx, "Vaults opened: " + s.yard.vaults, px + 16, py + 282, 13, "#fff", "left", false);
+  // DIG HERE on the first tile of a fresh yard
+  if (!s.yard.open.length && !busy) { const c = Math.floor(BASE.yardCols / 2), x = tileX(c) + TW / 2, y = tileY(0); const k = Math.sin(hint * 5) * 6; ctx.fillStyle = C.gold; ctx.strokeStyle = C.inkDeep; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, y - 14 + k); ctx.lineTo(x - 18, y - 40 + k); ctx.lineTo(x + 18, y - 40 + k); ctx.closePath(); ctx.fill(); ctx.stroke(); outlined(ctx, "DIG HERE", x, y - 48 + k, 20, C.gold); }
+  // the first visit: how it works, once
+  if (intro) { ctx.fillStyle = "rgba(20,26,34,.7)"; ctx.fillRect(0, 0, W, H); plate(ctx, 290, 150, 700, 400, C.paper, 22);
+    text(ctx, "THE YARD", 640, 198, 32, C.ink, "center");
+    const L = ["A vault is hidden somewhere in the bottom row.", "Tap a glowing tile to dig it. Dirt costs 1 energy, metal 2.", "Every open tile shows pips: more pips, closer to the vault.", "Dig toward the strongest signal. Wrong guesses cost energy.", "Short on time? AUTO DIG reads the pips for you."];
+    L.forEach((l, i) => text(ctx, l, 640, 246 + i * 36, 17, C.ink, "center", false));
+    for (let i = 0; i < 5; i++) { ctx.fillStyle = ["#4fb6ff", "#7cd0a0", "#ffd23f", "#ff9a3c", "#ff4d3c"][i]; ctx.beginPath(); ctx.roundRect(500 + i * 56, 440, 44, 14, 4); ctx.fill(); } text(ctx, "far", 470, 452, 13, C.muted, "right", false); text(ctx, "close", 800, 452, 13, C.muted, "left", false);
+    button(ctx, "yard:intro", 500, 480, 280, 44, "GOT IT", C.green, true, 20); }
   if (S.vaultOpen(s)) { text(ctx, "VAULT OPENED. New yard in " + fmtDur(S.nextYardIn(G.now())) + ".", 1135, H - 160, 14, C.gold, "center"); }
   { const any = !!S.autoDig(s); button(ctx, "yard:auto", 1010, H - 130, 250, 44, auto ? "STOP AUTO DIG" : "AUTO DIG", auto ? C.red : C.rust, any || auto, 20); text(ctx, auto ? "Digging for you, reading the signals." : s.energy.value < 1 ? "No energy. +1 every 5 min." : "Or tap any glowing tile to dig it.", 1135, H - 140, 12, "#fff", "center", false); }
 }
@@ -1456,6 +1483,8 @@ function pips(ctx, x, y, n, a) { ctx.globalAlpha = a; darkPlate(ctx, x - 4, y - 
 function hoverAt(x, y) { hover = null; for (let r = 0; r < BASE.yardLayers; r++) for (let c = 0; c < BASE.yardCols; c++) { const tx = tileX(c), ty = tileY(r); if (x >= tx && x <= tx + TW && y >= ty && y <= ty + TH) hover = [c, r]; } }
 function click(G, id) {
   const s = G.state;
+  if (id === "yard:intro") { intro = false; s.yardSeen = true; return; }
+  if (intro) return;
   if (id === "yard:auto") { auto = !auto; if (auto) queueAuto(G); return; }
   if (id.startsWith("yard:t:")) { const [, , c, r] = id.split(":"); auto = false; if (!start(G, +c, +r)) G.toast(S.digCostAt(s, +c, +r) > s.energy.value ? "Not enough energy" : "Dig next to an open tile"); }
 }
@@ -1475,8 +1504,8 @@ const STEPS = [
   { screen: "arena", at: "bottom", text: ["Just watch. Your three chips fire on their own.", "Hits show EFFECTIVE or RESISTED: that is the type system."], target: null, done: G => G.arenaPhase() === "pick" || G.arenaPhase() === "lost" },
   { screen: "arena", at: "left", text: ["You win a blueprint:", "take any one part.", "A part you already wear", "gives a star instead (+8%)."], target: "arena:take", lost: ["Lost this one. Energy is the only cost.", "Back in the arena, pick a rival with better odds."], done: G => G.screen !== "arena" },
   { screen: "workshop", at: "bottom", text: ["Blueprints need scrap and wire to build, and time.", "Dig them up in the YARD."], target: "nav:yard", done: G => G.screen === "yard" },
-  { screen: "yard", at: "sky", text: ["Tap a glowing tile to dig it. Dirt costs 1 energy, metal 2.", "Pips on an open tile show how close the hidden vault is.", "AUTO DIG reads the pips for you when you are short on time."], target: "yard:auto", done: G => G.state.yard.open.length >= 3 },
-  { screen: "yard", at: "sky", text: ["Energy refills on its own: twice as fast on your first day.", "Short on it? The SHOP refills the bar for 12 gems; you start with 50.", "With the materials in hand, build the part in the WORKSHOP and bolt it on."], target: "nav:workshop", done: G => G.screen === "workshop" },
+  { screen: "yard", at: "sky", text: ["Dig three tiles: tap the glowing ones.", "More pips on an open tile means", "the vault is closer. AUTO DIG can", "read them for you."], target: "yard:auto", done: G => G.state.yard.open.length >= 3 },
+  { screen: "yard", at: "sky", text: ["Energy refills on its own, twice as", "fast today. Gems refill it at once;", "your first builds finish instantly.", "Now build the part in the WORKSHOP."], target: "nav:workshop", done: G => G.screen === "workshop" },
 ];
 let pulse = 0, lastScreen = null;
 
@@ -1497,7 +1526,7 @@ function draw(G, ctx) {
   const tgt = target ? hits.find(h => h.id === target) : null;
   // callout
   const left = st.at === "left", sky = st.at === "sky", lh = left ? 20 : 24, fs = left ? 14 : 16;
-  const bw = left ? 380 : sky ? 700 : 760, bh = 34 + lines.length * lh + 26, bx = left ? 24 : sky ? 440 : (W - bw) / 2, by = st.at === "top" || sky ? 92 : H - 60 - bh - 20;
+  const bw = left ? 380 : sky ? 480 : 760, bh = 34 + lines.length * lh + 26, bx = left ? 24 : sky ? 770 : (W - bw) / 2, by = st.at === "top" || sky ? 92 : H - 60 - bh - 20;
   darkPlate(ctx, bx, by, bw, bh, 18, .94);
   ctx.fillStyle = C.gold; ctx.beginPath(); ctx.roundRect(bx, by, 8, bh, 4); ctx.fill();
   text(ctx, "GUIDE " + (s.tutorial + 1) + " / " + STEPS.length, bx + 24, by + 24, 13, C.gold);
