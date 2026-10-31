@@ -53,7 +53,7 @@ const BASE = {
   hitVariance: 0.5,     // every hit rolls 75%..125%: a power edge is a tendency, not a verdict
   fightMax: 60,          // seconds; past this the robot with the larger hp share wins
   // materials: a part costs in proportion to the power it adds, so a bigger upgrade is always a bigger job
-  scrapPerPower: 1.2,    // scrap to build a part = 1.2 x its power at level 1, times the rarity's cost factor
+  scrapPerPower: 1.1,    // scrap to build a part = 1.1 x its power at level 1, times the rarity's cost factor
   minutesPerPower: 0.2,  // build time = 0.2 min x its power, times the rarity's time factor (a rare arm ~70 min, a mythic ~5 h)
   newPlayerHours: 24,    // the first day: energy refills twice as fast
   newPlayerRefill: 2,
@@ -268,7 +268,7 @@ function buildCost(part) {
   return { scrap: Math.round(BASE.scrapPerPower * r.cost * P), wire: Math.round(r.wire * P), cores: r.cores, minutes: Math.round(BASE.minutesPerPower * r.time * P) };
 }
 function levelCost(part) {   // from part.level to part.level + 1
-  const next = partPower({ ...part, level: part.level + 1 }), steep = 1 + part.level / 30;   // high levels cost more per point: level 30 pays twice what level 1 does
+  const next = partPower({ ...part, level: part.level + 1 }), steep = 1 + part.level / 30 + 0.6 * Math.max(0, 1 - part.level / 15);   // early levels carry a surcharge that fades by level 15: a first level costs ~4.5 scrap per point, so a new blueprint is always the better first buy; the late curve is unchanged, so a new blueprint is always the better deal
   return { scrap: Math.round(BASE.levelScrap * next * steep), wire: part.level + 1 >= 10 ? Math.round(BASE.levelWire * next * steep) : 0 };
 }
 const generator = lv => ({ cap: BASE.genCap + BASE.genCapPerLevel * (lv - 1), perHour: 60 / BASE.genRefillMinutes });
@@ -1721,10 +1721,14 @@ const rotated = () => getComputedStyle(cv).transform !== "none" && getComputedSt
 function toCanvas(e) { const r = cv.getBoundingClientRect(); if (rotated()) return [(e.clientY - r.top) * W / r.height, (r.right - e.clientX) * H / r.width]; return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; }
 cv.addEventListener("mousemove", e => { const scr = SCREENS[G.screen]; if (scr.hoverAt) { const [x, y] = toCanvas(e); scr.hoverAt(x, y); } });
 // taps: pointerup fires once per tap on touch and mouse alike; click is kept for drives and old browsers
-let lastTap = 0;
+// one tap = one action: touch is handled on pointerup; the click that follows a touch is ignored; a mouse click is handled on click
+let touchHandled = 0, pointerDown = null;
+cv.addEventListener("pointerdown", e => { pointerDown = { x: e.clientX, y: e.clientY }; });
+cv.addEventListener("pointercancel", () => { pointerDown = null; });
+cv.addEventListener("touchend", e => { e.preventDefault(); }, { passive: false });
 function handle(id) { unlock(); if (id === "mute") { G.state.muted = !G.state.muted; setMuted(G.state.muted); S.save(G.state); if (!G.state.muted) SFX.tap(); return; } if (Tut.click(G, id)) { S.save(G.state); return; } if (id.startsWith("nav:")) { SFX.nav(); G.go(id.slice(4)); return; } SFX.tap(); SCREENS[G.screen].click(G, id); S.save(G.state); }
-cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; lastTap = Date.now(); e.preventDefault(); const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
-cv.addEventListener("click", e => { if (Date.now() - lastTap < 600) return; const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
+cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; e.preventDefault(); const d = pointerDown; pointerDown = null; if (d && (Math.abs(e.clientX - d.x) > 14 || Math.abs(e.clientY - d.y) > 14)) return; touchHandled = Date.now(); const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
+cv.addEventListener("click", e => { if (Date.now() - touchHandled < 1200) return; const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
 // a small embedded window (a chat viewer's frame): offer the full browser tab, and full screen where the browser allows it
 function smallCheck() { const w = window.innerWidth, h = window.innerHeight, embedded = w < 600 && h < 600, small = embedded && !document.fullscreenElement; document.body.classList.toggle("small", small); const fs = document.getElementById("fsBtn"); if (fs) fs.hidden = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen); }
 window.addEventListener("resize", smallCheck); smallCheck();
