@@ -703,15 +703,22 @@ const typeBadge = (ctx, kind, x, y, w = 86) => badge(ctx, kind.toUpperCase(), x,
 const rarityBadge = (ctx, r, x, y, w = 80) => badge(ctx, r.toUpperCase(), x, y, w, C.rarity[r]);
 
 // ---- click registry: a screen registers its buttons each frame; the app resolves a click against them ----
-const hits = [];
-function beginFrame() { hits.length = 0; }
+// the click registry: screens push into `hits` while drawing; a tap resolves against the LAST COMPLETE frame's list,
+// never against a half-drawn one (a tap arriving mid-frame used to find an empty list and do nothing)
+let hits = [];
+let live = [];
+function beginFrame() { hits = []; }
+function endFrame() { live = hits; }
+const ripples = [];
+function ripple(x, y) { ripples.push({ x, y, t: 0 }); }
+function drawRipples(ctx, dt) { for (const r of ripples) { r.t += dt; const k = r.t / .35; ctx.globalAlpha = Math.max(0, 1 - k); ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(r.x, r.y, 12 + k * 40, 0, Math.PI * 2); ctx.stroke(); } ctx.globalAlpha = 1; for (let i = ripples.length; i--;) if (ripples[i].t > .35) ripples.splice(i, 1); }
 function button(ctx, id, x, y, w, h, label, col = C.blue, on = true, size = h > 40 ? 24 : 19) {
   ctx.fillStyle = on ? col : "#b8c2cc"; ctx.strokeStyle = C.inkDeep; ctx.lineWidth = 3; rr(ctx, x, y, w, h, h / 2); ctx.fill(); ctx.stroke();
   text(ctx, label, x + w / 2, y + h / 2 + size * .36, size, "#fff", "center");
   if (on) hits.push({ id, x, y, w, h });
 }
 function hotspot(id, x, y, w, h) { hits.push({ id, x, y, w, h }); }
-function hitAt(px, py) { for (let i = hits.length - 1; i >= 0; i--) { const h = hits[i]; if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) return h.id; } return null; }
+function hitAt(px, py) { const L = live.length ? live : hits; for (let i = L.length - 1; i >= 0; i--) { const h = L[i]; if (px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h) return h.id; } return null; }
 
 // ---- floating numbers and call-outs ----
 const pops = [];
@@ -746,7 +753,7 @@ const fmtDur = ms => { const m = Math.max(0, Math.ceil(ms / 60000)); return m >=
 const fmtDurS = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return s >= 60 ? Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : s + "s"; };
 const pc = x => Math.round(100 * x) + "%";
 
-return { get rr() { return rr; }, get text() { return text; }, get outlined() { return outlined; }, get plate() { return plate; }, get darkPlate() { return darkPlate; }, get bar() { return bar; }, get badge() { return badge; }, get beginFrame() { return beginFrame; }, get button() { return button; }, get hotspot() { return hotspot; }, get hitAt() { return hitAt; }, get pop() { return pop; }, get stepPops() { return stepPops; }, get drawPops() { return drawPops; }, get star() { return star; }, get glyph() { return glyph; }, get chipIcon() { return chipIcon; }, get C() { return C; }, get F() { return F; }, get font() { return font; }, get MIN_TEXT() { return MIN_TEXT; }, get typeBadge() { return typeBadge; }, get rarityBadge() { return rarityBadge; }, get hits() { return hits; }, get pops() { return pops; }, get CHIP_UI() { return CHIP_UI; }, get fmtDur() { return fmtDur; }, get fmtDurS() { return fmtDurS; }, get pc() { return pc; } };
+return { get rr() { return rr; }, get text() { return text; }, get outlined() { return outlined; }, get plate() { return plate; }, get darkPlate() { return darkPlate; }, get bar() { return bar; }, get badge() { return badge; }, get beginFrame() { return beginFrame; }, get endFrame() { return endFrame; }, get ripple() { return ripple; }, get drawRipples() { return drawRipples; }, get button() { return button; }, get hotspot() { return hotspot; }, get hitAt() { return hitAt; }, get pop() { return pop; }, get stepPops() { return stepPops; }, get drawPops() { return drawPops; }, get star() { return star; }, get glyph() { return glyph; }, get chipIcon() { return chipIcon; }, get C() { return C; }, get F() { return F; }, get font() { return font; }, get MIN_TEXT() { return MIN_TEXT; }, get typeBadge() { return typeBadge; }, get rarityBadge() { return rarityBadge; }, get hits() { return hits; }, get ripples() { return ripples; }, get pops() { return pops; }, get CHIP_UI() { return CHIP_UI; }, get fmtDur() { return fmtDur; }, get fmtDurS() { return fmtDurS; }, get pc() { return pc; } };
 })();
 __m['sfx'] = (function () {
 // Sound: every effect is synthesized here, so the single-file build carries no audio files. The context is
@@ -1656,7 +1663,7 @@ __m['app'] = (function () {
 const { BASE } = __m['rules'];
 const S = __m['state'];
 const { loadParts } = __m['rig'];
-const { C, text, outlined, darkPlate, button, beginFrame, hitAt, hits, hotspot, glyph, stepPops, drawPops, fmtDurS, bar } = __m['ui'];
+const { C, text, outlined, darkPlate, button, beginFrame, endFrame, hitAt, hits, hotspot, glyph, stepPops, drawPops, fmtDurS, bar, ripple, drawRipples } = __m['ui'];
 const Base = __m['scr-base'];
 const Scout = __m['scr-scout'];
 const Arena = __m['scr-arena'];
@@ -1703,7 +1710,7 @@ function frame(ts) {
     scr.draw(G, ctx);
     if (G.screen !== "arena") { topBar(); nav(); }
     Tut.draw(G, ctx);
-    drawPops(ctx); toasts();
+    drawPops(ctx); toasts(); drawRipples(ctx, dt); endFrame();
     saveT += dt; if (saveT > 10) { saveT = 0; S.save(G.state); }
   } catch (e) { console.error("frame", e); ctx.fillStyle = "#300"; ctx.fillRect(0, 0, W, 24); text(ctx, String(e), 8, 17, 12, "#fff", "left", false); }
   requestAnimationFrame(frame);
@@ -1736,14 +1743,14 @@ cv.addEventListener("pointerdown", e => { pointerDown = { x: e.clientX, y: e.cli
 cv.addEventListener("pointercancel", () => { pointerDown = null; });
 cv.addEventListener("touchend", e => { e.preventDefault(); }, { passive: false });
 function handle(id) { unlock(); if (id === "mute") { G.state.muted = !G.state.muted; setMuted(G.state.muted); S.save(G.state); if (!G.state.muted) SFX.tap(); return; } if (Tut.click(G, id)) { S.save(G.state); return; } if (id.startsWith("nav:")) { SFX.nav(); G.go(id.slice(4)); return; } SFX.tap(); SCREENS[G.screen].click(G, id); S.save(G.state); }
-cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; e.preventDefault(); const d = pointerDown; pointerDown = null; if (d && (Math.abs(e.clientX - d.x) > 14 || Math.abs(e.clientY - d.y) > 14)) return; touchHandled = Date.now(); const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
-cv.addEventListener("click", e => { if (Date.now() - touchHandled < 1200) return; const [x, y] = toCanvas(e); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
+cv.addEventListener("pointerup", e => { if (e.pointerType === "mouse") return; e.preventDefault(); const d = pointerDown; pointerDown = null; if (d && (Math.abs(e.clientX - d.x) > 14 || Math.abs(e.clientY - d.y) > 14)) return; touchHandled = Date.now(); const [x, y] = toCanvas(e); ripple(x, y); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
+cv.addEventListener("click", e => { if (Date.now() - touchHandled < 1200) return; const [x, y] = toCanvas(e); ripple(x, y); const id = hitAt(x, y); if (id) handle(id); else unlock(); });
 // a small embedded window (a chat viewer's frame): offer the full browser tab, and full screen where the browser allows it
 function smallCheck() { const w = window.innerWidth, h = window.innerHeight, embedded = w < 600 && h < 600, small = embedded && !document.fullscreenElement; document.body.classList.toggle("small", small); const fs = document.getElementById("fsBtn"); if (fs) fs.hidden = !(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen); }
 window.addEventListener("resize", smallCheck); smallCheck();
 const fsBtn = document.getElementById("fsBtn"); if (fsBtn) fsBtn.addEventListener("click", () => { const el = document.documentElement; const p = el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen ? el.webkitRequestFullscreen() : null; if (p && p.catch) p.catch(() => {}); setTimeout(smallCheck, 500); });
 // debug handle: step time, jump screens, move the clock
-window.__bb = { G, S, SFX, phase: () => (SCREENS[G.screen].debug ? SCREENS[G.screen].debug() : G.screen), go: (n, p) => G.go(n, p), click: id => { if (Tut.click(G, id)) return; if (id.startsWith("nav:")) G.go(id.slice(4)); else SCREENS[G.screen].click(G, id); }, step: dt => { SCREENS[G.screen].step(G, dt); if (SCREENS[G.screen].after) SCREENS[G.screen].after(G); stepPops(dt); }, warp: ms => { clock.offset += ms; S.tick(G.state, G.now()); }, hits: () => hits.map(h => h.id) };
+window.__bb = { G, S, SFX, phase: () => (SCREENS[G.screen].debug ? SCREENS[G.screen].debug() : G.screen), go: (n, p) => G.go(n, p), click: id => { if (Tut.click(G, id)) return; if (id.startsWith("nav:")) G.go(id.slice(4)); else SCREENS[G.screen].click(G, id); }, step: dt => { SCREENS[G.screen].step(G, dt); if (SCREENS[G.screen].after) SCREENS[G.screen].after(G); stepPops(dt); }, warp: ms => { clock.offset += ms; S.tick(G.state, G.now()); }, hits: () => hits.map(h => h.id), hitAt };
 boot();
 
 return {  };
