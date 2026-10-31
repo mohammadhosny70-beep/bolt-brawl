@@ -47,8 +47,8 @@ const BASE = {
   hitPerOffPower: 0.22,  // one hit = 0.22 x the power of the offensive slots (arm, off arm, pack)
   attackInterval: 1.2,   // seconds between hits for a medium robot
   approach: 1.5,         // seconds a melee robot needs to reach a ranged one at the start
-  typeStrong: 1.4,       // damage type strong against the armor
-  typeWeak: 0.6,         // damage type weak against the armor
+  typeStrong: 1.3,       // damage type strong against the armor (a full counter is worth ~40% power; 1.4/0.6 made it 60%, 1.2/0.8 under 25%)
+  typeWeak: 0.7,         // damage type weak against the armor
   critChance: 0.20, critMult: 2.0,
   hitVariance: 0.5,     // every hit rolls 75%..125%: a power edge is a tendency, not a verdict
   fightMax: 60,          // seconds; past this the robot with the larger hp share wins
@@ -227,8 +227,8 @@ const LEAGUE = {
 const fightSpeedFor = tier => { let s = 1; const i = LEAGUE.tiers.findIndex(t => t[0] === tier); for (const [name, sp] of LEAGUE.speedAt) if (LEAGUE.tiers.findIndex(t => t[0] === name) <= i) s = sp; return s; };
 const tierOf = rating => { let t = LEAGUE.tiers[0][0]; for (const [name, min] of LEAGUE.tiers) if (rating >= min) t = name; return t; };
 const ratingDelta = (won, chance) => Math.round(won ? LEAGUE.K * (1 - chance) : -LEAGUE.K * chance);
-const seasonId = now => { const d = new Date(now); return d.getUTCFullYear() * 12 + d.getUTCMonth(); };
-const seasonEndsIn = now => { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - now; };
+const seasonId = now => { const d = new Date(now); return d.getFullYear() * 12 + d.getMonth(); };   // the player's own calendar month
+const seasonEndsIn = now => { const d = new Date(now); return new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() - now; };
 // the family a robot beats most easily: deals strong, takes weak (the first rival a new player meets)
 function preyOf(robot) {
   const me = stats(robot); let best = null, bs = 0;
@@ -372,8 +372,8 @@ function tick(s, now) {
   if (s.yard.no !== dayIndex(now)) { s.yard = { no: dayIndex(now), open: [], pos: null, pieces: s.yard.pieces, vaults: s.yard.vaults }; note(s, "yard", null); }
   s.seen = now;
 }
-const dayIndex = now => Math.floor(now / 864e5);
-const nextYardIn = now => 864e5 - (now % 864e5);
+const dayIndex = now => { const d = new Date(now); return Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 864e5); };   // the player's own calendar day
+const nextYardIn = now => { const d = new Date(now); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() - now; };
 const energyCap = s => generator(s.buildings.gen).cap;
 const isNewPlayer = (s, now) => now - s.created < BASE.newPlayerHours * 60 * MIN;
 const refillMs = (s, now) => BASE.genRefillMinutes * MIN / (isNewPlayer(s, now) ? BASE.newPlayerRefill : 1);
@@ -1077,11 +1077,11 @@ function draw(G, ctx) {
     plate(ctx, x, y, CARD_W, CARD_H, C.paper, 22);
     text(ctx, r.name, x + CARD_W / 2, y + 40, 28, C.ink, "center");
     const stronger = rs.power > st.power;
-    text(ctx, "PWR " + rs.power.toLocaleString() + (stronger ? "  STRONGER" : "  WEAKER"), x + CARD_W / 2, y + 66, 18, stronger ? C.red : C.green, "center");
+    text(ctx, "PWR " + rs.power.toLocaleString(), x + CARD_W / 2, y + 66, 18, C.muted, "center");   // no "stronger/weaker": the chance is the honest number; a counter beats power
     ctx.fillStyle = "rgba(31,38,48,.08)"; ctx.beginPath(); ctx.ellipse(x + CARD_W / 2, y + 250, 80, 12, 0, 0, Math.PI * 2); ctx.fill();
     ctx.save(); ctx.beginPath(); ctx.rect(x + 6, y + 80, CARD_W - 12, 172); ctx.clip(); drawActor(ctx, rivActors[i], x + CARD_W / 2, y + 248, SIZE.card); ctx.restore();
     typeBadge(ctx, rs.dtype, x + 10, y + 284, 80); typeBadge(ctx, rs.armor, x + 94, y + 284, 100); typeBadge(ctx, rs.weightClass, x + 198, y + 284, 62);
-    const mline = (yy, label, m, dealing) => { text(ctx, label, x + 16, yy, 14, C.muted, "left", false); const good = dealing ? m > 1 : m < 1, bad = dealing ? m < 1 : m > 1; text(ctx, m > 1 ? "x1.4 EFFECTIVE" : m < 1 ? "x0.6 RESISTED" : "x1 NORMAL", x + CARD_W - 16, yy, 17, good ? C.green : bad ? C.red : C.muted, "right"); };
+    const mline = (yy, label, m, dealing) => { text(ctx, label, x + 16, yy, 14, C.muted, "left", false); const good = dealing ? m > 1 : m < 1, bad = dealing ? m < 1 : m > 1; text(ctx, m > 1 ? "x" + m + " EFFECTIVE" : m < 1 ? "x" + m + " RESISTED" : "x1 NORMAL", x + CARD_W - 16, yy, 17, good ? C.green : bad ? C.red : C.muted, "right"); };
     mline(y + 324, "You deal", deal, true); mline(y + 350, "You take", take, false);
     r.chips.forEach((id, k) => chipIcon(ctx, id, x + 40 + k * 40, y + 382, .8));
     text(ctx, "their chips", x + 150, y + 388, 12, C.muted, "left", false);
