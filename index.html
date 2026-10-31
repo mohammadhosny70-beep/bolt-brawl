@@ -140,7 +140,7 @@ const CHIPS = {
 // Everyone digs the same yard number; a yard is yardCols wide and yardLayers deep. A tile may be dug when it
 // touches an open tile (the top row touches the surface). Extras are seeded with the yard.
 const YARD = {
-  signalBands: [2, 5, 9, 14],   // (cores are paced by their costs, not by rarer vaults: a vault is about 30 tiles with good reading)                 // manhattan distance to the vault: <=2 -> 5 pips, <=5 -> 4, <=9 -> 3, <=14 -> 2, else 1
+  signalBands: [3, 8, 14, 20],  // manhattan distance to the vault: <=3 -> 5 pips, <=8 -> 4, <=14 -> 3, <=20 -> 2, else 1; a fresh yard's top row reads 1-2 and every dig down moves the needle                 // manhattan distance to the vault: <=2 -> 5 pips, <=5 -> 4, <=9 -> 3, <=14 -> 2, else 1
   extras: {                                   // share of tiles, by kind, and what they do
     battery:   { share: 0.05, energy: +3,  text: "Battery: +3 energy" },
     oil:       { share: 0.04, energy: -2,  text: "Oil slick: -2 energy" },
@@ -966,7 +966,7 @@ __m['rivals'] = (function () {
 // Bolt Brawl - rivals: other players' defense builds. Until the server exists they are bots made from the
 // rules, seeded by the day and the player's power, so everyone sees the same three at the same power.
 const { SLOTS, FAMILIES, RARITY, makePart, stats, partPower, BASE, rollRarity, preyOf, CAMPAIGN, bossPower } = __m['rules'];
-const { rng } = __m['sim'];
+const { rng, winChance } = __m['sim'];
 const NAMES = ["RUSTY_77", "NOVA.K", "BOLTZILLA", "GEARHEAD", "MS.PIXEL", "SCRAPJAW", "TINMAN_9", "KILOWATT", "DR.CRANK", "ZAPPA", "GRIMLOCK", "HEX_NUT", "PISTON_P", "LUG", "TORQUE", "SPROCKET", "ANVIL_22", "DYNAMO", "RIVETS", "COGSWORTH"];
 const FAMS = Object.keys(FAMILIES), RARS = Object.keys(RARITY), CHIP_IDS = ["block", "dodge", "over", "last"];
 const HUES = [60, 120, 200, 260, 320];   // a rival's paint, never the factory colours, so it never looks like the player's robot
@@ -991,12 +991,14 @@ function makeRival(seed, target, name, forceTheme) {
 // the three rivals offered today: one a little weaker, one about even, one stronger, each a different family theme if possible
 function offer(state, day = Math.floor(Date.now() / 864e5)) {
   const base = stats(state.robot).power, out = [], used = new Set();
-  const spreads = [0.9, 1.0, 1.15];
+  const me = { robot: state.robot, chips: state.chips, prestige: state.prestige || 0 };
+  const spreads = [0.9, 1.0, 1.08], bands = [[0.8, 1], [0.5, 0.78], [0.25, 0.5]];   // a sure part, a fair fight, an upset: chosen by simulated chance, never under 25%
   for (let i = 0; i < 3; i++) {
-    let r, tries = 0;
+    let r, tries = 0, best = null, bestD = 9;
     const firstTime = state.league.wins + state.league.losses === 0 && i === 0;   // a new player's first rival is the one their weapon beats: the counter system, shown
-    do { r = makeRival(day * 1000 + state.league.wins * 7 + (state.rerolls || 0) * 977 + i * 31 + tries * 101, Math.round(base * spreads[i] * (0.97 + 0.06 * ((i * 7919 + day) % 7) / 7)), null, firstTime ? preyOf(state.robot) : null); tries++; }
-    while ((used.has(r.name) || used.has(r.robot.arm.family)) && tries < 8);
+    do { r = makeRival(day * 1000 + state.league.wins * 7 + (state.rerolls || 0) * 977 + i * 31 + tries * 101, Math.round(base * spreads[i] * (0.9 + 0.2 * ((i * 7919 + day + tries * 13) % 11) / 11)), null, firstTime ? preyOf(state.robot) : null); tries++; }
+    while ((() => { if (used.has(r.name) || used.has(r.robot.arm.family)) return tries < 24; if (firstTime) return false; const p = winChance(me, { robot: r.robot, chips: r.chips }, 40, day + i).p, mid = (bands[i][0] + bands[i][1]) / 2, dd = Math.abs(p - mid); if (dd < bestD) { bestD = dd; best = r; } return !inBand(p, bands[i]) && tries < 24; })());
+    if (!firstTime && best && bestD < Math.abs(winChance(me, { robot: r.robot, chips: r.chips }, 40, day + i).p - (bands[i][0] + bands[i][1]) / 2)) r = best;   // out of tries: the closest to the band's middle
     if (firstTime) { r.robot.arm = makePart("arm", r.robot.arm.family, "rare", 1); for (const p of Object.values(r.robot)) p.level = 1; }   // and wears a rare arm: the first prize is a real upgrade
     used.add(r.name); used.add(r.robot.arm.family);
     r.reward = bestPart(r.robot); out.push(r);
@@ -1011,6 +1013,7 @@ function makeBoss(k) {
   r.chips = b.chips.slice(); r.boss = k; r.sig = makePart(...b.sig); r.cores = b.cores; r.reward = r.sig;
   return r;
 }
+const inBand = (p, [lo, hi]) => p >= lo && p <= hi;
 // what you would take: the rival's most valuable part is shown as the prize; the player picks any part after the win
 function bestPart(robot) { return Object.values(robot).sort((a, b) => partPower(b) - partPower(a))[0]; }
 
@@ -1083,7 +1086,8 @@ function draw(G, ctx) {
     text(ctx, p + "%", x + CARD_W / 2, y + 444, 50, col, "center"); text(ctx, "WIN CHANCE (simulated)", x + CARD_W / 2, y + 461, 12, C.muted, "center", false);
     bar(ctx, x + 24, y + 468, CARD_W - 48, 8, ch, col);
     const rw = ratingDelta(true, ch), rl = ratingDelta(false, ch);
-    text(ctx, rw <= 2 ? "Sure win: the part, no rating" : "Rating +" + rw + " win / " + rl + " loss", x + CARD_W / 2, y + 490, 11, rw <= 2 ? C.muted : C.ink, "center", false);
+    if (rw <= 2) text(ctx, "Sure win: the part, no rating", x + CARD_W / 2, y + 490, 11, C.muted, "center", false);
+    else { text(ctx, "+" + rw, x + CARD_W / 2 - 46, y + 491, 14, C.green, "right"); text(ctx, "win", x + CARD_W / 2 - 42, y + 491, 11, C.muted, "left", false); text(ctx, "" + rl, x + CARD_W / 2 + 40, y + 491, 14, C.red, "right"); text(ctx, "loss", x + CARD_W / 2 + 44, y + 491, 11, C.muted, "left", false); }
     drawPartIcon(ctx, iconKey(r.reward), x + 30, y + 504, 22); text(ctx, "Prize: " + S.partName(r.reward), x + 46, y + 508, 11, C.ink, "left", false);
     button(ctx, "scout:fight:" + i, x + 50, y + CARD_H - 44, CARD_W - 100, 36, S.canFight(s) ? "FIGHT  " + BASE.fightEnergy + " ENERGY" : "NO ENERGY", C.red, S.canFight(s), 17);
   });
@@ -1405,7 +1409,7 @@ function targetCam(s) { const r = s.yard.pos ? s.yard.pos.r : -1; return Math.ma
 function step(G, dt) {
   const s = G.state; stepActor(me, dt);
   if (s.yard.no !== lastYard) { lastYard = s.yard.no; me.x = standAt(s)[0]; }
-  camT = targetCam(s); cam += (camT - cam) * Math.min(1, dt * 4);
+  if (!busy || auto) camT = targetCam(s); cam += (camT - cam) * Math.min(1, dt * 4);
   const [sx] = standAt(s);
   if (busy) {
     busy.t += dt;
@@ -1463,7 +1467,7 @@ function draw(G, ctx) {
   // side panel
   const px = 20, py = 100; darkPlate(ctx, px, py, 240, 300, 18, .88);
   text(ctx, "TODAY'S YARD", px + 16, py + 32, 24, "#fff");
-  text(ctx, "Layer " + (s.yard.pos ? s.yard.pos.r + 1 : 0) + " of " + BASE.yardLayers, px + 16, py + 56, 14, "#9aa6b2", "left", false);
+  text(ctx, "Deepest layer " + s.yard.open.reduce((m, k) => Math.max(m, +k.split(",")[1] + 1), 0) + " of " + BASE.yardLayers, px + 16, py + 56, 14, "#9aa6b2", "left", false);
   text(ctx, S.vaultOpen(s) ? "Vault found. Dig on for scrap and wire." : "Vault: bottom row, column unknown", px + 16, py + 76, 12, "#9aa6b2", "left", false);
   text(ctx, "SIGNAL", px + 16, py + 108, 16, "#fff"); pips(ctx, px + 86, py + 98, 1, 1); text(ctx, "far", px + 160, py + 110, 12, "#9aa6b2", "left", false);
   pips(ctx, px + 86, py + 122, 5, 1); text(ctx, "close", px + 160, py + 134, 12, "#9aa6b2", "left", false);
@@ -1510,7 +1514,7 @@ const STEPS = [
   { screen: "base", at: "top", text: ["This is your robot: 2,000 power.", "Fights run on their own; building the robot is the game.", "Open the ARENA to find a rival."], target: "nav:scout", done: G => G.screen === "scout" },
   { screen: "scout", at: "left", text: ["Three rivals near your power.", "The big number is your real", "win chance, from a simulated fight.", "Your blade beats the first one.", "Fight it."], target: "scout:fight:0", done: G => G.screen === "arena" },
   { screen: "arena", at: "bottom", text: ["Just watch. Your three chips fire on their own.", "Hits show EFFECTIVE or RESISTED: that is the type system."], target: null, done: G => G.arenaPhase() === "pick" || G.arenaPhase() === "lost" },
-  { screen: "arena", at: "left", text: ["You win a blueprint:", "take any one part.", "A part you already wear", "gives a star instead (+8%)."], target: "arena:take", lost: ["Lost this one. Energy is the only cost.", "Back in the arena, pick a rival with better odds."], done: G => G.screen !== "arena" },
+  { screen: "arena", at: "left", text: ["You win a blueprint:", "take any one part.", "Later, a duplicate of a part", "you wear adds a star (+8%)."], target: "arena:take", lost: ["Lost this one. Energy is the only cost.", "Back in the arena, pick a rival with better odds."], done: G => G.screen !== "arena" },
   { screen: "workshop", at: "bottom", text: ["Blueprints need scrap and wire to build, and time.", "Dig them up in the YARD."], target: "nav:yard", done: G => G.screen === "yard" },
   { screen: "yard", at: "sky", text: ["Dig three tiles: tap the glowing ones.", "More pips on an open tile means", "the vault is closer. AUTO DIG can", "read them for you."], target: "yard:auto", done: G => G.state.yard.open.length >= 3 },
   { screen: "yard", at: "sky", text: ["Energy refills on its own (see the", "top bar). Your first two builds finish", "at once, and you have scrap for one.", "Build the part in the WORKSHOP."], target: "nav:workshop", done: G => G.screen === "workshop" },
@@ -1565,7 +1569,7 @@ function draw(G, ctx) {
   text(ctx, "No ads. No random boxes. Every pack shows exactly what is inside. Power can always be earned by playing.", 640, 180, 13, C.muted, "center", false);
   if (tab === "gems") {
     SHOP.gems.forEach((g, i) => { const x = 60 + i * 300, y = 210; card(ctx, x, y, 270, 300); glyph(ctx, "gems", x + 135, y + 90, 2.4); text(ctx, g.gems.toLocaleString(), x + 135, y + 160, 40, C.ink, "center"); text(ctx, "gems", x + 135, y + 184, 14, C.muted, "center", false); text(ctx, (g.gems / g.usd).toFixed(0) + " per dollar", x + 135, y + 206, 12, C.muted, "center", false); button(ctx, "shop:buy:" + g.id, x + 40, y + 236, 190, 44, "$" + g.usd.toFixed(2), C.green, true, 22); });
-    const st = SHOP.starter; card(ctx, 60, 530, 1160, 120, !s.owned.starter); text(ctx, st.name.toUpperCase() + (s.owned.starter ? "  (bought)" : "  once per account"), 80, 566, 22); text(ctx, st.gems + " gems and a rare Sawbot arm blueprint (a saw cuts metal for 1 energy).", 80, 592, 14, C.muted, "left", false); drawPartIcon(ctx, iconKey({ slot: "arm", family: "sawbot" }), 900, 590, 60); button(ctx, "shop:buy:starter", 980, 568, 200, 44, "$" + st.usd.toFixed(2), C.green, !s.owned.starter, 22);
+    const st = SHOP.starter; card(ctx, 60, 530, 1160, 120, !s.owned.starter); text(ctx, st.name.toUpperCase() + (s.owned.starter ? "  (bought)" : "  once per account"), 80, 566, 22); text(ctx, st.gems + " gems and a rare Sawbot arm blueprint.", 80, 592, 14, C.muted, "left", false); drawPartIcon(ctx, iconKey({ slot: "arm", family: "sawbot" }), 900, 590, 60); button(ctx, "shop:buy:starter", 980, 568, 200, 44, "$" + st.usd.toFixed(2), C.green, !s.owned.starter, 22);
   }
   if (tab === "packs") {
     SHOP.packs.forEach((p, i) => { const x = 60 + i * 390, y = 210; card(ctx, x, y, 360, 420); text(ctx, p.name.toUpperCase(), x + 180, y + 40, 24, C.ink, "center"); text(ctx, "blueprints, exactly these:", x + 180, y + 62, 12, C.muted, "center", false);
