@@ -679,7 +679,7 @@ return { get len() { return len; }, get P() { return P; }, get loadParts() { ret
 __m['ui'] = (function () {
 // Bolt Brawl - the UI kit: one palette, one type scale, one set of plates, buttons, badges and bars, and
 // the click registry every screen uses. Screens compose these; they never draw a button of their own.
-const { TYPE, WEIGHT } = __m['rules'];
+const { TYPE, WEIGHT, RARITY } = __m['rules'];
 const C = {
   ink: "#1f2630", inkDeep: "#11161c", paper: "#f4f7fa", paperWarm: "#fff6dc", line: "#dfe5eb", muted: "#5b6673",
   gold: "#ffd23f", amber: "#f0a01c", red: "#e0452b", green: "#2f9e4f", blue: "#3d8fe0", purple: "#b06ad9", rust: "#c9822e",
@@ -700,7 +700,7 @@ function darkPlate(ctx, x, y, w, h, r = 18, alpha = .86) { ctx.fillStyle = `rgba
 function bar(ctx, x, y, w, h, q, col, back = C.line) { ctx.fillStyle = back; rr(ctx, x, y, w, h, h / 2); ctx.fill(); ctx.fillStyle = col; rr(ctx, x, y, w * Math.max(0, Math.min(1, q)), h, h / 2); ctx.fill(); }
 function badge(ctx, label, x, y, w, col, textCol = "#fff") { ctx.fillStyle = col; ctx.strokeStyle = C.ink; ctx.lineWidth = 2.5; rr(ctx, x, y - 14, w, 28, 14); ctx.fill(); ctx.stroke(); text(ctx, label, x + w / 2, y + 5, 14, textCol, "center"); }
 const typeBadge = (ctx, kind, x, y, w = 86) => badge(ctx, kind.toUpperCase(), x, y, w, C.type[kind] || C.muted);
-const rarityBadge = (ctx, r, x, y, w = 80) => badge(ctx, r.toUpperCase(), x, y, w, C.rarity[r]);
+const rarityBadge = (ctx, r, x, y, w = 80) => badge(ctx, r.toUpperCase() + " x" + RARITY[r].mult, x, y, w, C.rarity[r]);
 
 // ---- click registry: a screen registers its buttons each frame; the app resolves a click against them ----
 // the click registry: screens push into `hits` while drawing; a tap resolves against the LAST COMPLETE frame's list,
@@ -1478,7 +1478,7 @@ function draw(G, ctx) {
         const lit = hover && hover[0] === c && hover[1] === r;
         ctx.strokeStyle = lit ? C.gold : "rgba(255,210,63," + (.35 + .25 * Math.sin(hint * 4)) + ")"; ctx.lineWidth = lit ? 4 : 3; ctx.strokeRect(x + 2, y + 2, TW - 4, TH - 4);
         if (scanner && s.yard.pos && Math.abs(c - s.yard.pos.c) + Math.abs(r - s.yard.pos.r) === 1) pips(ctx, x + 8, y + 10, t.signal, .6);
-      } else if (r > 0) { ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.fillRect(x, y, TW, TH); }
+      } else { if (r > 0) { ctx.fillStyle = "rgba(0,0,0,.28)"; ctx.fillRect(x, y, TW, TH); } hotspot("yard:far:" + c + ":" + r, x, y, TW, TH); }
     }
   }
   const [, sy] = standAt(s);
@@ -1526,6 +1526,7 @@ function click(G, id) {
   if (id === "yard:intro") { intro = false; s.yardSeen = true; return; }
   if (intro) return;
   if (id === "yard:auto") { auto = !auto; if (auto) queueAuto(G); return; }
+  if (id.startsWith("yard:far:")) { G.toast("Dig a path to it first: only tiles touching an open one can be dug"); return; }
   if (id.startsWith("yard:t:")) { const [, , c, r] = id.split(":"); auto = false; if (!start(G, +c, +r)) G.toast(S.digCostAt(s, +c, +r) > s.energy.value ? "Not enough energy" : "Dig next to an open tile"); }
 }
 const debug = () => (busy ? "digging" : auto ? "auto" : "idle");
